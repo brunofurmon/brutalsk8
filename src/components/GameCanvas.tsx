@@ -40,10 +40,11 @@ export function GameCanvas() {
 
     // Constants
     const SPEED = 18
-    const JUMP_VEL = 110
-    const GRAVITY = 9
+    const JUMP_VEL = 75
+    const GRAVITY = 10
     const CAM_Y = 160
     const CAM_Z = -350
+    const PLAYER_Z = 150
     const TILT = 0.2
     const FOCAL = 500
     const HORIZON_RADIUS = 2500
@@ -67,7 +68,7 @@ export function GameCanvas() {
       return [dx, dy * cy - dz * sy, dy * sy + dz * cy]
     }
 
-    const createSkateboard = (y: number, rollAngle: number): Triangle[] => {
+    const createSkateboard = (y: number, z: number, rollAngle: number): Triangle[] => {
       const t: Triangle[] = []
       t.push(...createBox([0, 0, 0], [30, 5, 90], [250, 204, 21])) // Deck
 
@@ -85,7 +86,7 @@ export function GameCanvas() {
         vertices: tri.vertices.map((v) => {
           const rx = v[0] * c - v[1] * s
           const ry = v[0] * s + v[1] * c
-          return [rx, ry + y + 8, v[2]] as Vec3
+          return [rx, ry + y + 8, v[2] + z] as Vec3
         }) as [Vec3, Vec3, Vec3],
       }))
     }
@@ -97,8 +98,8 @@ export function GameCanvas() {
       if (inputState.d) worldAngle -= ROT_SPEED
 
       // Movement (Inverted vertical movement)
-      const moveX = Math.sin(worldAngle) * SPEED
-      const moveZ = Math.cos(worldAngle) * SPEED
+      const moveX = Math.sin(-worldAngle) * SPEED
+      const moveZ = Math.cos(-worldAngle) * SPEED
       if (inputState.w) {
         worldX += moveX
         worldZ += moveZ
@@ -133,6 +134,12 @@ export function GameCanvas() {
       gradient.addColorStop(1, '#F97316')
       ctx.fillStyle = gradient
       ctx.fillRect(0, 0, width, height)
+
+      // Static 2D Sun
+      ctx.fillStyle = '#FDE047'
+      ctx.beginPath()
+      ctx.arc(width / 2, height / 2 + 100, 180, 0, Math.PI * 2)
+      ctx.fill()
 
       const triangles: Triangle[] = []
       const TILE_SIZE = 400
@@ -170,11 +177,6 @@ export function GameCanvas() {
         }
       }
 
-      // Atmospheric Sun (Hemisphere directly on horizon)
-      createSphere([0, -20, 3200], 800, [253, 224, 71], true).forEach((t) => {
-        triangles.push({ ...t, isWorld: true })
-      })
-
       // Props (Infinite Treadmill wrapping)
       propsState.forEach((p) => {
         let px = p.x - worldX,
@@ -192,14 +194,14 @@ export function GameCanvas() {
       })
 
       // Skater
-      createSkateboard(playerY, boardAngle).forEach((t) => {
+      createSkateboard(playerY, PLAYER_Z, boardAngle).forEach((t) => {
         triangles.push({ ...t, isWorld: false })
       })
-      createBox([0, playerY + 45, 0], [40, 60, 25], [225, 29, 72]).forEach((t) => {
+      createBox([0, playerY + 45, PLAYER_Z], [40, 60, 25], [225, 29, 72]).forEach((t) => {
         triangles.push({ ...t, isWorld: false })
       })
       // Character head as a sphere
-      createSphere([0, playerY + 90, 0], 18, [225, 29, 72], false).forEach((t) => {
+      createSphere([0, playerY + 90, PLAYER_Z], 18, [225, 29, 72], false).forEach((t) => {
         triangles.push({ ...t, isWorld: false })
       })
 
