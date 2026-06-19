@@ -6,6 +6,28 @@ export type Triangle = {
   isWorld?: boolean
 }
 
+export const createPyramid = (center: Vec3, size: Vec3, color: Vec3): Triangle[] => {
+  const [cx, cy, cz] = center
+  const [w, h, d] = size
+  const hw = w / 2,
+    hd = d / 2
+
+  const top: Vec3 = [cx, cy + h / 2, cz]
+  const p0: Vec3 = [cx - hw, cy - h / 2, cz + hd]
+  const p1: Vec3 = [cx + hw, cy - h / 2, cz + hd]
+  const p2: Vec3 = [cx + hw, cy - h / 2, cz - hd]
+  const p3: Vec3 = [cx - hw, cy - h / 2, cz - hd]
+
+  return [
+    { vertices: [p0, p1, top], color },
+    { vertices: [p1, p2, top], color },
+    { vertices: [p2, p3, top], color },
+    { vertices: [p3, p0, top], color },
+    { vertices: [p1, p0, p2], color },
+    { vertices: [p2, p0, p3], color },
+  ]
+}
+
 export const createBox = (center: Vec3, size: Vec3, color: Vec3): Triangle[] => {
   const [cx, cy, cz] = center
   const [w, h, d] = size
@@ -47,8 +69,8 @@ export const createSphere = (
   hemisphere = false,
 ): Triangle[] => {
   const t: Triangle[] = []
-  const rings = hemisphere ? 4 : 6
-  const sectors = 8
+  const rings = hemisphere ? 2 : 3
+  const sectors = 5
   const R = hemisphere ? (1 / (rings - 1)) * 0.5 : 1 / (rings - 1)
   const S = 1 / (sectors - 1)
 

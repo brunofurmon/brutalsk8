@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { Vec3, sub, cross, dot, normalize } from '@/lib/math3d'
-import { Triangle, createBox, createSphere } from '@/lib/geometry'
+import { Triangle, createBox, createSphere, createPyramid } from '@/lib/geometry'
 import { inputState } from '@/lib/input'
 
 export function GameCanvas() {
@@ -40,8 +40,8 @@ export function GameCanvas() {
 
     // Constants
     const SPEED = 18
-    const JUMP_VEL = 75
-    const GRAVITY = 10
+    const JUMP_VEL = 55
+    const GRAVITY = 3.5
     const CAM_Y = 160
     const CAM_Z = -350
     const PLAYER_Z = 150
@@ -73,10 +73,10 @@ export function GameCanvas() {
       t.push(...createBox([0, 0, 0], [30, 5, 90], [250, 204, 21])) // Deck
 
       const wheelC: Vec3 = [40, 40, 40]
-      t.push(...createBox([-15, -4, 25], [8, 8, 8], wheelC))
-      t.push(...createBox([15, -4, 25], [8, 8, 8], wheelC))
-      t.push(...createBox([-15, -4, -25], [8, 8, 8], wheelC))
-      t.push(...createBox([15, -4, -25], [8, 8, 8], wheelC))
+      t.push(...createPyramid([-15, -4, 25], [8, 8, 8], wheelC))
+      t.push(...createPyramid([15, -4, 25], [8, 8, 8], wheelC))
+      t.push(...createPyramid([-15, -4, -25], [8, 8, 8], wheelC))
+      t.push(...createPyramid([15, -4, -25], [8, 8, 8], wheelC))
 
       const c = Math.cos(rollAngle)
       const s = Math.sin(rollAngle)
@@ -135,18 +135,30 @@ export function GameCanvas() {
       ctx.fillStyle = gradient
       ctx.fillRect(0, 0, width, height)
 
-      // Static 2D Sun
-      ctx.fillStyle = '#FDE047'
-      ctx.beginPath()
-      ctx.arc(width / 2, height / 2 + 100, 180, 0, Math.PI * 2)
-      ctx.fill()
+      // World-Fixed Sun
+      const sunWorldPos: Vec3 = [0, 3000, 15000]
+      const pxSun = sunWorldPos[0] - worldX
+      const pzSun = sunWorldPos[2] - worldZ
+      const pySun = sunWorldPos[1]
+      const tSun = transform([pxSun, pySun, pzSun], true)
+
+      if (tSun[2] > 10) {
+        const sx = tSun[0] * (FOCAL / tSun[2]) + width / 2
+        const sy = -tSun[1] * (FOCAL / tSun[2]) + height / 2
+        const sunRadius = 2700000 / tSun[2]
+
+        ctx.fillStyle = '#FDE047'
+        ctx.beginPath()
+        ctx.arc(sx, sy, sunRadius, 0, Math.PI * 2)
+        ctx.fill()
+      }
 
       const triangles: Triangle[] = []
-      const TILE_SIZE = 400
+      const TILE_SIZE = 1000
 
       // Floor Grid (Circular boundary)
-      for (let c = -8; c <= 8; c++) {
-        for (let r = -8; r <= 8; r++) {
+      for (let c = -4; c <= 4; c++) {
+        for (let r = -4; r <= 4; r++) {
           const x = c * TILE_SIZE - (worldX % TILE_SIZE)
           const z = r * TILE_SIZE - (worldZ % TILE_SIZE)
 
@@ -197,11 +209,11 @@ export function GameCanvas() {
       createSkateboard(playerY, PLAYER_Z, boardAngle).forEach((t) => {
         triangles.push({ ...t, isWorld: false })
       })
-      createBox([0, playerY + 45, PLAYER_Z], [40, 60, 25], [225, 29, 72]).forEach((t) => {
+      createPyramid([0, playerY + 45, PLAYER_Z], [40, 60, 25], [225, 29, 72]).forEach((t) => {
         triangles.push({ ...t, isWorld: false })
       })
-      // Character head as a sphere
-      createSphere([0, playerY + 90, PLAYER_Z], 18, [225, 29, 72], false).forEach((t) => {
+      // Character head as a low-poly sphere
+      createSphere([0, playerY + 85, PLAYER_Z], 18, [225, 29, 72], false).forEach((t) => {
         triangles.push({ ...t, isWorld: false })
       })
 
