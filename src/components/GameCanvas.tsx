@@ -69,20 +69,28 @@ export function GameCanvas({ onJump }: { onJump?: () => void }) {
       return [dx, dy * cy - dz * sy, dy * sy + dz * cy]
     }
 
-    const createSkateboard = (y: number, z: number, rollAngle: number): Triangle[] => {
-      const t: Triangle[] = []
-      t.push(...createBox([0, 0, 0], [30, 5, 90], [250, 204, 21])) // Deck
+    const createSkateboard = (
+      y: number,
+      z: number,
+      rollAngle: number,
+    ): (Triangle & { layer: number })[] => {
+      const deck = createBox([0, 0, 0], [30, 5, 90], [250, 204, 21]).map((t) => ({
+        ...t,
+        layer: 1,
+      }))
 
       const wheelC: Vec3 = [40, 40, 40]
-      t.push(...createPyramid([-15, -4, 25], [8, 8, 8], wheelC))
-      t.push(...createPyramid([15, -4, 25], [8, 8, 8], wheelC))
-      t.push(...createPyramid([-15, -4, -25], [8, 8, 8], wheelC))
-      t.push(...createPyramid([15, -4, -25], [8, 8, 8], wheelC))
+      const wheels = [
+        ...createPyramid([-15, -4, 25], [8, 8, 8], wheelC),
+        ...createPyramid([15, -4, 25], [8, 8, 8], wheelC),
+        ...createPyramid([-15, -4, -25], [8, 8, 8], wheelC),
+        ...createPyramid([15, -4, -25], [8, 8, 8], wheelC),
+      ].map((t) => ({ ...t, layer: 0 }))
 
       const c = Math.cos(rollAngle)
       const s = Math.sin(rollAngle)
 
-      return t.map((tri) => ({
+      return [...wheels, ...deck].map((tri) => ({
         ...tri,
         vertices: tri.vertices.map((v) => {
           const rx = v[0] * c - v[1] * s
@@ -216,14 +224,14 @@ export function GameCanvas({ onJump }: { onJump?: () => void }) {
 
       // Skater
       createSkateboard(playerY, PLAYER_Z, boardAngle).forEach((t) => {
-        triangles.push({ ...t, isWorld: false })
+        triangles.push({ ...t, isWorld: false } as any)
       })
       createPyramid([0, playerY + 45, PLAYER_Z], [40, 60, 25], [225, 29, 72]).forEach((t) => {
-        triangles.push({ ...t, isWorld: false })
+        triangles.push({ ...t, isWorld: false, layer: 2 } as any)
       })
       // Character head as a low-poly sphere
       createSphere([0, playerY + 85, PLAYER_Z], 18, [225, 29, 72], false).forEach((t) => {
-        triangles.push({ ...t, isWorld: false })
+        triangles.push({ ...t, isWorld: false, layer: 3 } as any)
       })
 
       // Projection & Shading
@@ -279,6 +287,7 @@ export function GameCanvas({ onJump }: { onJump?: () => void }) {
             zAvg,
             normal,
             isGround: (t as any).isGround,
+            layer: (t as any).layer,
           }
         })
         .filter(Boolean) as any[]
@@ -286,7 +295,18 @@ export function GameCanvas({ onJump }: { onJump?: () => void }) {
       projected.sort((a, b) => {
         if (a.isGround && !b.isGround) return -1
         if (!a.isGround && b.isGround) return 1
-        return b.zAvg - a.zAvg
+
+        let za = a.zAvg
+        let zb = b.zAvg
+
+        // Visual Depth Correction for Character Parts
+        // Layers: 0 (Wheels), 1 (Deck), 2 (Body), 3 (Head)
+        // By adding an offset based on the layer, we ensure that smaller layers
+        // have larger zSort values, meaning they are drawn earlier (further back).
+        if (a.layer !== undefined) za += (3 - a.layer) * 25
+        if (b.layer !== undefined) zb += (3 - b.layer) * 25
+
+        return zb - za
       })
 
       // Render
