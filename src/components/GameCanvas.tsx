@@ -136,7 +136,7 @@ export function GameCanvas() {
       ctx.fillRect(0, 0, width, height)
 
       // World-Fixed Sun
-      const sunWorldPos: Vec3 = [0, 3000, 15000]
+      const sunWorldPos: Vec3 = [0, 0, 15000]
       const pxSun = sunWorldPos[0] - worldX
       const pzSun = sunWorldPos[2] - worldZ
       const pySun = sunWorldPos[1]
@@ -149,7 +149,7 @@ export function GameCanvas() {
 
         ctx.fillStyle = '#FDE047'
         ctx.beginPath()
-        ctx.arc(sx, sy, sunRadius, 0, Math.PI * 2)
+        ctx.arc(sx, sy, sunRadius, Math.PI, 0)
         ctx.fill()
       }
 
@@ -164,9 +164,7 @@ export function GameCanvas() {
 
           if (Math.hypot(x + TILE_SIZE / 2, z + TILE_SIZE / 2) > HORIZON_RADIUS) continue
 
-          const trueCol = c + Math.floor(worldX / TILE_SIZE)
-          const trueRow = r + Math.floor(worldZ / TILE_SIZE)
-          const color: Vec3 = (trueCol + trueRow) % 2 === 0 ? [115, 115, 115] : [95, 95, 95]
+          const color: Vec3 = [105, 105, 105]
 
           triangles.push({
             vertices: [
@@ -176,7 +174,8 @@ export function GameCanvas() {
             ],
             color,
             isWorld: true,
-          })
+            isGround: true,
+          } as any)
           triangles.push({
             vertices: [
               [x, 0, z],
@@ -185,7 +184,8 @@ export function GameCanvas() {
             ],
             color,
             isWorld: true,
-          })
+            isGround: true,
+          } as any)
         }
       }
 
@@ -218,6 +218,25 @@ export function GameCanvas() {
       })
 
       // Projection & Shading
+      const clipPolygon = (vertices: Vec3[], minZ: number): Vec3[] => {
+        const result: Vec3[] = []
+        for (let i = 0; i < vertices.length; i++) {
+          const v1 = vertices[i]
+          const v2 = vertices[(i + 1) % vertices.length]
+          const d1 = v1[2] - minZ
+          const d2 = v2[2] - minZ
+
+          if (d1 >= 0) {
+            result.push(v1)
+          }
+          if (d1 * d2 < 0) {
+            const t = d1 / (d1 - d2)
+            result.push([v1[0] + (v2[0] - v1[0]) * t, v1[1] + (v2[1] - v1[1]) * t, minZ])
+          }
+        }
+        return result
+      }
+
       const projected = triangles
         .map((t) => {
           const v0 = t.vertices[0],
@@ -235,24 +254,22 @@ export function GameCanvas() {
           const tv1 = transform(v1, t.isWorld ?? true)
           const tv2 = transform(v2, t.isWorld ?? true)
 
-          if (tv0[2] < 10 || tv1[2] < 10 || tv2[2] < 10) return null
+          const clipped = clipPolygon([tv0, tv1, tv2], 10)
+          if (clipped.length < 3) return null
 
-          const p0x = tv0[0] * (FOCAL / tv0[2]) + width / 2,
-            p0y = -tv0[1] * (FOCAL / tv0[2]) + height / 2
-          const p1x = tv1[0] * (FOCAL / tv1[2]) + width / 2,
-            p1y = -tv1[1] * (FOCAL / tv1[2]) + height / 2
-          const p2x = tv2[0] * (FOCAL / tv2[2]) + width / 2,
-            p2y = -tv2[1] * (FOCAL / tv2[2]) + height / 2
+          const pts2d = clipped.map((v) => [
+            v[0] * (FOCAL / v[2]) + width / 2,
+            -v[1] * (FOCAL / v[2]) + height / 2,
+          ])
+
+          const zAvg = clipped.reduce((sum, v) => sum + v[2], 0) / clipped.length
 
           return {
-            pts: [
-              [p0x, p0y],
-              [p1x, p1y],
-              [p2x, p2y],
-            ],
+            pts: pts2d,
             color: t.color,
-            zAvg: (tv0[2] + tv1[2] + tv2[2]) / 3,
+            zAvg,
             normal,
+            isGround: (t as any).isGround,
           }
         })
         .filter(Boolean) as any[]
@@ -268,13 +285,19 @@ export function GameCanvas() {
         const b = Math.floor(p.color[2] * intensity)
 
         ctx.fillStyle = `rgb(${r},${g},${b})`
-        ctx.strokeStyle = `rgb(${Math.max(0, r - 15)},${Math.max(0, g - 15)},${Math.max(0, b - 15)})`
-        ctx.lineWidth = 1.5
+        if (p.isGround) {
+          ctx.strokeStyle = `rgb(${r},${g},${b})`
+          ctx.lineWidth = 1
+        } else {
+          ctx.strokeStyle = `rgb(${Math.max(0, r - 15)},${Math.max(0, g - 15)},${Math.max(0, b - 15)})`
+          ctx.lineWidth = 1.5
+        }
 
         ctx.beginPath()
         ctx.moveTo(p.pts[0][0], p.pts[0][1])
-        ctx.lineTo(p.pts[1][0], p.pts[1][1])
-        ctx.lineTo(p.pts[2][0], p.pts[2][1])
+        for (let i = 1; i < p.pts.length; i++) {
+          ctx.lineTo(p.pts[i][0], p.pts[i][1])
+        }
         ctx.closePath()
         ctx.fill()
         ctx.stroke()
