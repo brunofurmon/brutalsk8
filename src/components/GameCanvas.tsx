@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { Vec3, sub, cross, dot, normalize } from '@/lib/math3d'
-import { Triangle, createBox, createSphere, createPyramid } from '@/lib/geometry'
+import { Triangle, createBox, createSphere, createPyramid, createRamp } from '@/lib/geometry'
 import { inputState } from '@/lib/input'
 
 export function GameCanvas({ onJump }: { onJump?: () => void }) {
@@ -32,7 +32,8 @@ export function GameCanvas({ onJump }: { onJump?: () => void }) {
     let playerY = 0,
       playerVY = 0,
       boardAngle = 0
-    const propsState = Array.from({ length: 120 }).map(() => ({
+    const propsState = Array.from({ length: 150 }).map(() => ({
+      type: Math.random() > 0.3 ? 'box' : 'ramp',
       x: (Math.random() - 0.5) * 13000,
       z: (Math.random() - 0.5) * 13000,
       color: [Math.random() * 50 + 20, Math.random() * 50 + 100, Math.random() * 50 + 200] as Vec3,
@@ -48,7 +49,7 @@ export function GameCanvas({ onJump }: { onJump?: () => void }) {
     const TILT = 0.2
     const FOCAL = 500
     const HORIZON_RADIUS = 6000
-    const ROT_SPEED = 0.06
+    const ROT_SPEED = 0.045
     const lightDir = normalize([0.5, 0.8, 0.5])
 
     const transform = (v: Vec3, isWorld: boolean = true): Vec3 => {
@@ -201,9 +202,15 @@ export function GameCanvas({ onJump }: { onJump?: () => void }) {
         if (pz > 6500) p.z -= 13000
 
         if (Math.hypot(px, pz) < HORIZON_RADIUS) {
-          createBox([px, 30, pz], [60, 60, 60], p.color).forEach((t) => {
-            triangles.push({ ...t, isWorld: true })
-          })
+          if (p.type === 'box') {
+            createBox([px, 30, pz], [60, 60, 60], p.color).forEach((t) => {
+              triangles.push({ ...t, isWorld: true })
+            })
+          } else {
+            createRamp([px, 40, pz], [120, 80, 160], p.color).forEach((t) => {
+              triangles.push({ ...t, isWorld: true })
+            })
+          }
         }
       })
 

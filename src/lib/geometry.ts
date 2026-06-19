@@ -28,6 +28,34 @@ export const createPyramid = (center: Vec3, size: Vec3, color: Vec3): Triangle[]
   ]
 }
 
+export const createRamp = (center: Vec3, size: Vec3, color: Vec3): Triangle[] => {
+  const [cx, cy, cz] = center
+  const [w, h, d] = size
+  const hw = w / 2,
+    hh = h / 2,
+    hd = d / 2
+
+  const p: Vec3[] = [
+    [cx - hw, cy - hh, cz + hd], // 0: front-bottom-left
+    [cx + hw, cy - hh, cz + hd], // 1: front-bottom-right
+    [cx + hw, cy - hh, cz - hd], // 2: back-bottom-right
+    [cx - hw, cy - hh, cz - hd], // 3: back-bottom-left
+    [cx + hw, cy + hh, cz - hd], // 4: back-top-right
+    [cx - hw, cy + hh, cz - hd], // 5: back-top-left
+  ]
+
+  return [
+    { vertices: [p[0], p[2], p[1]], color },
+    { vertices: [p[0], p[3], p[2]], color }, // Bottom
+    { vertices: [p[3], p[5], p[4]], color },
+    { vertices: [p[3], p[4], p[2]], color }, // Back
+    { vertices: [p[0], p[1], p[4]], color },
+    { vertices: [p[0], p[4], p[5]], color }, // Slope
+    { vertices: [p[0], p[5], p[3]], color }, // Left
+    { vertices: [p[1], p[2], p[4]], color }, // Right
+  ]
+}
+
 export const createBox = (center: Vec3, size: Vec3, color: Vec3): Triangle[] => {
   const [cx, cy, cz] = center
   const [w, h, d] = size
