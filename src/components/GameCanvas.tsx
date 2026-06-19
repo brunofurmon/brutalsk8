@@ -40,7 +40,7 @@ export function GameCanvas() {
 
     // Constants
     const SPEED = 18
-    const JUMP_VEL = 55
+    const JUMP_VEL = 35
     const GRAVITY = 3.5
     const CAM_Y = 160
     const CAM_Z = -350
@@ -135,17 +135,16 @@ export function GameCanvas() {
       ctx.fillStyle = gradient
       ctx.fillRect(0, 0, width, height)
 
-      // World-Fixed Sun
-      const sunWorldPos: Vec3 = [0, 0, 15000]
-      const pxSun = sunWorldPos[0] - worldX
-      const pzSun = sunWorldPos[2] - worldZ
-      const pySun = sunWorldPos[1]
+      // World-Fixed Sun (Infinite Distance)
+      const pxSun = 0
+      const pzSun = 15000
+      const pySun = 0
       const tSun = transform([pxSun, pySun, pzSun], true)
 
       if (tSun[2] > 10) {
         const sx = tSun[0] * (FOCAL / tSun[2]) + width / 2
         const sy = -tSun[1] * (FOCAL / tSun[2]) + height / 2
-        const sunRadius = 2700000 / tSun[2]
+        const sunRadius = 180
 
         ctx.fillStyle = '#FDE047'
         ctx.beginPath()
@@ -274,7 +273,11 @@ export function GameCanvas() {
         })
         .filter(Boolean) as any[]
 
-      projected.sort((a, b) => b.zAvg - a.zAvg)
+      projected.sort((a, b) => {
+        if (a.isGround && !b.isGround) return -1
+        if (!a.isGround && b.isGround) return 1
+        return b.zAvg - a.zAvg
+      })
 
       // Render
       ctx.lineJoin = 'miter'
