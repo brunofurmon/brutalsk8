@@ -3,7 +3,7 @@ import { Vec3, sub, cross, dot, normalize } from '@/lib/math3d'
 import { Triangle, createBox, createSphere, createPyramid } from '@/lib/geometry'
 import { inputState } from '@/lib/input'
 
-export function GameCanvas() {
+export function GameCanvas({ onJump }: { onJump?: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -40,8 +40,8 @@ export function GameCanvas() {
 
     // Constants
     const SPEED = 18
-    const JUMP_VEL = 28
-    const GRAVITY = 1.0
+    const JUMP_VEL = 42
+    const GRAVITY = 2.25
     const CAM_Y = 160
     const CAM_Z = -350
     const PLAYER_Z = 150
@@ -110,7 +110,10 @@ export function GameCanvas() {
       }
 
       // Jump & Kickflip
-      if (inputState.space && playerY === 0) playerVY = JUMP_VEL
+      if (inputState.space && playerY === 0) {
+        playerVY = JUMP_VEL
+        if (onJump) onJump()
+      }
 
       if (playerY > 0 || playerVY !== 0) {
         playerY += playerVY
