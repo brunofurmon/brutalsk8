@@ -32,22 +32,22 @@ export function GameCanvas() {
     let playerY = 0,
       playerVY = 0,
       boardAngle = 0
-    const propsState = Array.from({ length: 40 }).map(() => ({
-      x: (Math.random() - 0.5) * 5000,
-      z: (Math.random() - 0.5) * 5000,
+    const propsState = Array.from({ length: 120 }).map(() => ({
+      x: (Math.random() - 0.5) * 13000,
+      z: (Math.random() - 0.5) * 13000,
       color: [Math.random() * 50 + 20, Math.random() * 50 + 100, Math.random() * 50 + 200] as Vec3,
     }))
 
     // Constants
     const SPEED = 18
-    const JUMP_VEL = 35
-    const GRAVITY = 3.5
+    const JUMP_VEL = 28
+    const GRAVITY = 1.0
     const CAM_Y = 160
     const CAM_Z = -350
     const PLAYER_Z = 150
     const TILT = 0.2
     const FOCAL = 500
-    const HORIZON_RADIUS = 2500
+    const HORIZON_RADIUS = 6000
     const ROT_SPEED = 0.06
     const lightDir = normalize([0.5, 0.8, 0.5])
 
@@ -156,8 +156,8 @@ export function GameCanvas() {
       const TILE_SIZE = 1000
 
       // Floor Grid (Circular boundary)
-      for (let c = -4; c <= 4; c++) {
-        for (let r = -4; r <= 4; r++) {
+      for (let c = -8; c <= 8; c++) {
+        for (let r = -8; r <= 8; r++) {
           const x = c * TILE_SIZE - (worldX % TILE_SIZE)
           const z = r * TILE_SIZE - (worldZ % TILE_SIZE)
 
@@ -192,10 +192,10 @@ export function GameCanvas() {
       propsState.forEach((p) => {
         let px = p.x - worldX,
           pz = p.z - worldZ
-        if (px < -2500) p.x += 5000
-        if (px > 2500) p.x -= 5000
-        if (pz < -2500) p.z += 5000
-        if (pz > 2500) p.z -= 5000
+        if (px < -6500) p.x += 13000
+        if (px > 6500) p.x -= 13000
+        if (pz < -6500) p.z += 13000
+        if (pz > 6500) p.z -= 13000
 
         if (Math.hypot(px, pz) < HORIZON_RADIUS) {
           createBox([px, 30, pz], [60, 60, 60], p.color).forEach((t) => {
