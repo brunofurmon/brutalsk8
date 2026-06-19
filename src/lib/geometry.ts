@@ -3,6 +3,7 @@ import { Vec3 } from '@/lib/math3d'
 export type Triangle = {
   vertices: [Vec3, Vec3, Vec3]
   color: Vec3
+  isWorld?: boolean
 }
 
 export const createBox = (center: Vec3, size: Vec3, color: Vec3): Triangle[] => {
@@ -37,4 +38,42 @@ export const createBox = (center: Vec3, size: Vec3, color: Vec3): Triangle[] => 
     { vertices: [p[4], p[0], p[3]], color },
     { vertices: [p[4], p[3], p[7]], color }, // Left
   ]
+}
+
+export const createSphere = (
+  center: Vec3,
+  radius: number,
+  color: Vec3,
+  hemisphere = false,
+): Triangle[] => {
+  const t: Triangle[] = []
+  const rings = hemisphere ? 4 : 6
+  const sectors = 8
+  const R = hemisphere ? (1 / (rings - 1)) * 0.5 : 1 / (rings - 1)
+  const S = 1 / (sectors - 1)
+
+  const vertices: Vec3[] = []
+  for (let r = 0; r < rings; r++) {
+    for (let s = 0; s < sectors; s++) {
+      const angle = hemisphere ? (Math.PI / 2) * (r / (rings - 1)) : -Math.PI / 2 + Math.PI * r * R
+      const y = Math.sin(angle)
+      const rad = Math.cos(angle)
+      const x = Math.cos(2 * Math.PI * s * S) * rad
+      const z = Math.sin(2 * Math.PI * s * S) * rad
+      vertices.push([center[0] + x * radius, center[1] + y * radius, center[2] + z * radius])
+    }
+  }
+
+  for (let r = 0; r < rings - 1; r++) {
+    for (let s = 0; s < sectors - 1; s++) {
+      const i0 = r * sectors + s
+      const i1 = r * sectors + (s + 1)
+      const i2 = (r + 1) * sectors + (s + 1)
+      const i3 = (r + 1) * sectors + s
+
+      t.push({ vertices: [vertices[i0], vertices[i1], vertices[i2]], color })
+      t.push({ vertices: [vertices[i0], vertices[i2], vertices[i3]], color })
+    }
+  }
+  return t
 }

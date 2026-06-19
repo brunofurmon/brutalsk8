@@ -1,6 +1,6 @@
 import { useEffect, useRef } from 'react'
 import { Vec3, sub, cross, dot, normalize } from '@/lib/math3d'
-import { Triangle, createBox } from '@/lib/geometry'
+import { Triangle, createBox, createSphere } from '@/lib/geometry'
 import { inputState } from '@/lib/input'
 
 export function GameCanvas() {
@@ -27,53 +27,107 @@ export function GameCanvas() {
 
     // Game State
     let worldX = 0,
-      worldZ = 0
+      worldZ = 0,
+      worldAngle = 0
     let playerY = 0,
-      playerVY = 0
-    const propsState = Array.from({ length: 15 }).map(() => ({
-      x: (Math.random() - 0.5) * 3000,
-      z: (Math.random() - 0.5) * 3000,
+      playerVY = 0,
+      boardAngle = 0
+    const propsState = Array.from({ length: 40 }).map(() => ({
+      x: (Math.random() - 0.5) * 5000,
+      z: (Math.random() - 0.5) * 5000,
       color: [Math.random() * 50 + 20, Math.random() * 50 + 100, Math.random() * 50 + 200] as Vec3,
     }))
 
     // Constants
-    const SPEED = 12
-    const JUMP_VEL = 14
-    const GRAVITY = 0.5
-    const CAM_Y = 180
-    const CAM_Z = -400
-    const TILT = 0.3 // radians down
+    const SPEED = 18
+    const JUMP_VEL = 110
+    const GRAVITY = 9
+    const CAM_Y = 160
+    const CAM_Z = -350
+    const TILT = 0.2
     const FOCAL = 500
-    const lightDir = normalize([1, 0.5, 1])
+    const HORIZON_RADIUS = 2500
+    const ROT_SPEED = 0.06
+    const lightDir = normalize([0.5, 0.8, 0.5])
 
-    const transform = (v: Vec3): Vec3 => {
-      const dx = v[0],
-        dy = v[1] - CAM_Y,
-        dz = v[2] - CAM_Z
+    const transform = (v: Vec3, isWorld: boolean = true): Vec3 => {
+      let [dx, dy, dz] = v
+      if (isWorld) {
+        const cA = Math.cos(-worldAngle)
+        const sA = Math.sin(-worldAngle)
+        const nx = dx * cA - dz * sA
+        const nz = dx * sA + dz * cA
+        dx = nx
+        dz = nz
+      }
+      dy = dy - CAM_Y
+      dz = dz - CAM_Z
       const cy = Math.cos(TILT),
         sy = Math.sin(TILT)
       return [dx, dy * cy - dz * sy, dy * sy + dz * cy]
     }
 
+    const createSkateboard = (y: number, rollAngle: number): Triangle[] => {
+      const t: Triangle[] = []
+      t.push(...createBox([0, 0, 0], [30, 5, 90], [250, 204, 21])) // Deck
+
+      const wheelC: Vec3 = [40, 40, 40]
+      t.push(...createBox([-15, -4, 25], [8, 8, 8], wheelC))
+      t.push(...createBox([15, -4, 25], [8, 8, 8], wheelC))
+      t.push(...createBox([-15, -4, -25], [8, 8, 8], wheelC))
+      t.push(...createBox([15, -4, -25], [8, 8, 8], wheelC))
+
+      const c = Math.cos(rollAngle)
+      const s = Math.sin(rollAngle)
+
+      return t.map((tri) => ({
+        ...tri,
+        vertices: tri.vertices.map((v) => {
+          const rx = v[0] * c - v[1] * s
+          const ry = v[0] * s + v[1] * c
+          return [rx, ry + y + 8, v[2]] as Vec3
+        }) as [Vec3, Vec3, Vec3],
+      }))
+    }
+
     let animationId: number
     const loop = () => {
-      // Physics & Input
-      if (inputState.w) worldZ -= SPEED
-      if (inputState.s) worldZ += SPEED
-      if (inputState.a) worldX -= SPEED
-      if (inputState.d) worldX += SPEED
+      // Rotation
+      if (inputState.a) worldAngle += ROT_SPEED
+      if (inputState.d) worldAngle -= ROT_SPEED
 
+      // Movement (Inverted vertical movement)
+      const moveX = Math.sin(worldAngle) * SPEED
+      const moveZ = Math.cos(worldAngle) * SPEED
+      if (inputState.w) {
+        worldX += moveX
+        worldZ += moveZ
+      }
+      if (inputState.s) {
+        worldX -= moveX
+        worldZ -= moveZ
+      }
+
+      // Jump & Kickflip
       if (inputState.space && playerY === 0) playerVY = JUMP_VEL
-      playerY += playerVY
-      playerVY -= GRAVITY
-      if (playerY < 0) {
-        playerY = 0
-        playerVY = 0
+
+      if (playerY > 0 || playerVY !== 0) {
+        playerY += playerVY
+        playerVY -= GRAVITY
+
+        // Complete 1 full rotation smoothly over the jump duration
+        boardAngle += (Math.PI * 2) / ((2 * JUMP_VEL) / GRAVITY)
+
+        if (playerY <= 0) {
+          playerY = 0
+          playerVY = 0
+          boardAngle = 0
+        }
       }
 
       ctx.clearRect(0, 0, width, height)
 
-      // Draw Skybox Background
+      // Skybox Background
       const gradient = ctx.createLinearGradient(0, 0, 0, height)
       gradient.addColorStop(0, '#1E3A8A')
       gradient.addColorStop(1, '#F97316')
@@ -81,17 +135,16 @@ export function GameCanvas() {
       ctx.fillRect(0, 0, width, height)
 
       const triangles: Triangle[] = []
-      const TILE_SIZE = 200
-      const cols = 18,
-        rows = 24
-      const startCol = -Math.floor(cols / 2),
-        startRow = -4
+      const TILE_SIZE = 400
 
-      // Floor Grid
-      for (let c = startCol; c < startCol + cols; c++) {
-        for (let r = startRow; r < startRow + rows; r++) {
+      // Floor Grid (Circular boundary)
+      for (let c = -8; c <= 8; c++) {
+        for (let r = -8; r <= 8; r++) {
           const x = c * TILE_SIZE - (worldX % TILE_SIZE)
           const z = r * TILE_SIZE - (worldZ % TILE_SIZE)
+
+          if (Math.hypot(x + TILE_SIZE / 2, z + TILE_SIZE / 2) > HORIZON_RADIUS) continue
+
           const trueCol = c + Math.floor(worldX / TILE_SIZE)
           const trueRow = r + Math.floor(worldZ / TILE_SIZE)
           const color: Vec3 = (trueCol + trueRow) % 2 === 0 ? [115, 115, 115] : [95, 95, 95]
@@ -103,6 +156,7 @@ export function GameCanvas() {
               [x + TILE_SIZE, 0, z + TILE_SIZE],
             ],
             color,
+            isWorld: true,
           })
           triangles.push({
             vertices: [
@@ -111,25 +165,43 @@ export function GameCanvas() {
               [x, 0, z + TILE_SIZE],
             ],
             color,
+            isWorld: true,
           })
         }
       }
 
-      // Decorative Props (Infinite Treadmill wrapping)
+      // Atmospheric Sun (Hemisphere directly on horizon)
+      createSphere([0, -20, 3200], 800, [253, 224, 71], true).forEach((t) => {
+        triangles.push({ ...t, isWorld: true })
+      })
+
+      // Props (Infinite Treadmill wrapping)
       propsState.forEach((p) => {
         let px = p.x - worldX,
           pz = p.z - worldZ
-        if (px < -1500) p.x += 3000
-        if (px > 1500) p.x -= 3000
-        if (pz < -1000) p.z += 3000
-        if (pz > 2000) p.z -= 3000
-        triangles.push(...createBox([px, 30, pz], [60, 60, 60], p.color))
+        if (px < -2500) p.x += 5000
+        if (px > 2500) p.x -= 5000
+        if (pz < -2500) p.z += 5000
+        if (pz > 2500) p.z -= 5000
+
+        if (Math.hypot(px, pz) < HORIZON_RADIUS) {
+          createBox([px, 30, pz], [60, 60, 60], p.color).forEach((t) => {
+            triangles.push({ ...t, isWorld: true })
+          })
+        }
       })
 
       // Skater
-      triangles.push(...createBox([0, playerY + 5, 0], [30, 5, 90], [250, 204, 21])) // Board
-      triangles.push(...createBox([0, playerY + 40, 0], [40, 60, 25], [225, 29, 72])) // Body
-      triangles.push(...createBox([0, playerY + 80, 0], [25, 25, 25], [225, 29, 72])) // Head
+      createSkateboard(playerY, boardAngle).forEach((t) => {
+        triangles.push({ ...t, isWorld: false })
+      })
+      createBox([0, playerY + 45, 0], [40, 60, 25], [225, 29, 72]).forEach((t) => {
+        triangles.push({ ...t, isWorld: false })
+      })
+      // Character head as a sphere
+      createSphere([0, playerY + 90, 0], 18, [225, 29, 72], false).forEach((t) => {
+        triangles.push({ ...t, isWorld: false })
+      })
 
       // Projection & Shading
       const projected = triangles
@@ -137,10 +209,18 @@ export function GameCanvas() {
           const v0 = t.vertices[0],
             v1 = t.vertices[1],
             v2 = t.vertices[2]
-          const normal = normalize(cross(sub(v1, v0), sub(v2, v0)))
-          const tv0 = transform(v0),
-            tv1 = transform(v1),
-            tv2 = transform(v2)
+
+          let normal = normalize(cross(sub(v1, v0), sub(v2, v0)))
+          if (t.isWorld) {
+            const cA = Math.cos(-worldAngle),
+              sA = Math.sin(-worldAngle)
+            normal = [normal[0] * cA - normal[2] * sA, normal[1], normal[0] * sA + normal[2] * cA]
+          }
+
+          const tv0 = transform(v0, t.isWorld ?? true)
+          const tv1 = transform(v1, t.isWorld ?? true)
+          const tv2 = transform(v2, t.isWorld ?? true)
+
           if (tv0[2] < 10 || tv1[2] < 10 || tv2[2] < 10) return null
 
           const p0x = tv0[0] * (FOCAL / tv0[2]) + width / 2,
@@ -149,6 +229,7 @@ export function GameCanvas() {
             p1y = -tv1[1] * (FOCAL / tv1[2]) + height / 2
           const p2x = tv2[0] * (FOCAL / tv2[2]) + width / 2,
             p2y = -tv2[1] * (FOCAL / tv2[2]) + height / 2
+
           return {
             pts: [
               [p0x, p0y],
@@ -168,9 +249,9 @@ export function GameCanvas() {
       ctx.lineJoin = 'miter'
       for (const p of projected) {
         const intensity = 0.35 + 0.65 * Math.max(0, dot(p.normal, lightDir))
-        const r = Math.floor(p.color[0] * intensity),
-          g = Math.floor(p.color[1] * intensity),
-          b = Math.floor(p.color[2] * intensity)
+        const r = Math.floor(p.color[0] * intensity)
+        const g = Math.floor(p.color[1] * intensity)
+        const b = Math.floor(p.color[2] * intensity)
 
         ctx.fillStyle = `rgb(${r},${g},${b})`
         ctx.strokeStyle = `rgb(${Math.max(0, r - 15)},${Math.max(0, g - 15)},${Math.max(0, b - 15)})`
