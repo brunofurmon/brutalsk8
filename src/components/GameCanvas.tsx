@@ -337,20 +337,42 @@ export function GameCanvas({ onJump }: { onJump?: () => void }) {
 
     let animationId: number
     const loop = () => {
-      // Rotation
-      if (inputState.a) worldAngle += ROT_SPEED
-      if (inputState.d) worldAngle -= ROT_SPEED
+      // Analog magnitude: 0 no teclado/joystick parado, 0..1 no joystick.
+      // Usa os valores analógicos quando presentes; caso contrário (teclado),
+      // velocidade total com ligar/desligar instantâneo.
+      const analogMag = Math.hypot(inputState.analogX, inputState.analogY)
+      const usingAnalog = analogMag > 0
+
+      // Rotation — total no joystick (acima de threshold) e no teclado
+      if (usingAnalog) {
+        if (Math.abs(inputState.analogX) > 0.1) {
+          worldAngle -= Math.sign(inputState.analogX) * ROT_SPEED
+        }
+      } else {
+        if (inputState.a) worldAngle += ROT_SPEED
+        if (inputState.d) worldAngle -= ROT_SPEED
+      }
 
       // Movement (Inverted vertical movement)
-      const moveX = Math.sin(-worldAngle) * SPEED
-      const moveZ = Math.cos(-worldAngle) * SPEED
-      if (inputState.w) {
-        worldX += moveX
-        worldZ += moveZ
-      }
-      if (inputState.s) {
-        worldX -= moveX
-        worldZ -= moveZ
+      // No joystick, a velocidade é proporcional à magnitude do vetor analógico;
+      // analogY negativo = frente (w), positivo = trás (s).
+      const speedScale = usingAnalog ? Math.min(analogMag, 1) : 1
+      const moveX = Math.sin(-worldAngle) * SPEED * speedScale
+      const moveZ = Math.cos(-worldAngle) * SPEED * speedScale
+
+      if (usingAnalog) {
+        // Frente/trás controlados pelo analogY (negativo = frente)
+        worldX += moveX * Math.sign(-inputState.analogY)
+        worldZ += moveZ * Math.sign(-inputState.analogY)
+      } else {
+        if (inputState.w) {
+          worldX += moveX
+          worldZ += moveZ
+        }
+        if (inputState.s) {
+          worldX -= moveX
+          worldZ -= moveZ
+        }
       }
 
       // Jump & Kickflip

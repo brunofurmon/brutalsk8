@@ -12,7 +12,10 @@ export default function Index() {
   }, [])
 
   return (
-    <div className="relative w-full h-screen overflow-hidden font-mono select-none">
+    <div
+      className="relative w-full overflow-hidden font-mono select-none"
+      style={{ height: '100dvh' }}
+    >
       <GameCanvas onJump={() => setFlips((f) => f + 1)} />
 
       {/* HUD overlay */}

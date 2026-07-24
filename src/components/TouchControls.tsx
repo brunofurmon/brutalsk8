@@ -14,6 +14,8 @@ export function TouchControls() {
     inputState.a = false
     inputState.s = false
     inputState.d = false
+    inputState.analogX = 0
+    inputState.analogY = 0
   }, [])
 
   const updateInput = useCallback(
@@ -34,15 +36,26 @@ export function TouchControls() {
         return
       }
 
-      // Limita o thumb ao raio do botão para feedback visual
+      // Raio do botão para feedback visual e normalização
       const radius = rect.width / 2
+
+      // Valores analógicos normalizados (-1 a 1), preservando a intensidade
+      const clampedDist = Math.min(dist, radius)
+      const scale = clampedDist / dist
+      const analogX = (dx * scale) / radius
+      const analogY = (dy * scale) / radius
+
+      inputState.analogX = analogX
+      inputState.analogY = analogY
+
+      // Limita o thumb ao raio do botão para feedback visual
       if (dist > radius) {
         dx = (dx / dist) * radius
         dy = (dy / dist) * radius
       }
       setThumb({ x: dx, y: dy })
 
-      // Direção pelo ângulo em relação ao centro
+      // Booleanos para compatibilidade com o teclado (ainda funciona)
       inputState.w = dy < 0 // metade superior
       inputState.s = dy > 0 // metade inferior
       inputState.a = dx < 0 // metade esquerda
@@ -82,13 +95,16 @@ export function TouchControls() {
   )
 
   const handleTouch =
-    (key: keyof typeof inputState, state: boolean) => (e: React.SyntheticEvent) => {
+    (key: 'w' | 'a' | 's' | 'd' | 'space', state: boolean) => (e: React.SyntheticEvent) => {
       e.preventDefault()
       inputState[key] = state
     }
 
   return (
-    <div className="absolute inset-0 z-20 pointer-events-none flex items-end justify-between p-6 md:hidden">
+    <div
+      className="absolute inset-0 z-20 pointer-events-none flex items-end justify-between p-6 md:hidden"
+      style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1.5rem)' }}
+    >
       {/* Joystick analógico */}
       <div
         ref={baseRef}

@@ -4,6 +4,9 @@ export const inputState = {
   s: false,
   d: false,
   space: false,
+  // Valores analógicos do joystick (-1 a 1). São zero no teclado.
+  analogX: 0, // -1 (esquerda) a 1 (direita)
+  analogY: 0, // -1 (frente/cima) a 1 (trás/baixo)
 }
 
 export const initKeyboardControls = () => {
