@@ -39,6 +39,7 @@ export const createRamp = (
   size: Vec3,
   color: Vec3,
   material?: string,
+  omitBottom = true,
 ): Triangle[] => {
   const [cx, cy, cz] = center
   const [w, h, d] = size
@@ -55,27 +56,7 @@ export const createRamp = (
     [cx - hw, cy + hh, cz - hd], // 5: back-top-left
   ]
 
-  return [
-    {
-      vertices: [p[0], p[2], p[1]],
-      color,
-      material,
-      uvs: [
-        [0, 1],
-        [1, 0],
-        [1, 1],
-      ],
-    },
-    {
-      vertices: [p[0], p[3], p[2]],
-      color,
-      material,
-      uvs: [
-        [0, 1],
-        [0, 0],
-        [1, 0],
-      ],
-    }, // Bottom
+  const tris: Triangle[] = [
     {
       vertices: [p[3], p[5], p[4]],
       color,
@@ -137,9 +118,42 @@ export const createRamp = (
       ],
     }, // Right
   ]
+
+  if (!omitBottom) {
+    tris.push(
+      {
+        vertices: [p[0], p[2], p[1]],
+        color,
+        material,
+        uvs: [
+          [0, 1],
+          [1, 0],
+          [1, 1],
+        ],
+      },
+      {
+        vertices: [p[0], p[3], p[2]],
+        color,
+        material,
+        uvs: [
+          [0, 1],
+          [0, 0],
+          [1, 0],
+        ],
+      },
+    )
+  }
+
+  return tris
 }
 
-export const createBox = (center: Vec3, size: Vec3, color: Vec3, material?: string): Triangle[] => {
+export const createBox = (
+  center: Vec3,
+  size: Vec3,
+  color: Vec3,
+  material?: string,
+  omitBottom = false,
+): Triangle[] => {
   const [cx, cy, cz] = center
   const [w, h, d] = size
   const hw = w / 2,
@@ -147,17 +161,17 @@ export const createBox = (center: Vec3, size: Vec3, color: Vec3, material?: stri
     hd = d / 2
 
   const p: Vec3[] = [
-    [cx - hw, cy - hh, cz + hd],
-    [cx + hw, cy - hh, cz + hd], // Front-bottom: 0, 1
-    [cx + hw, cy + hh, cz + hd],
-    [cx - hw, cy + hh, cz + hd], // Front-top: 2, 3
-    [cx - hw, cy - hh, cz - hd],
-    [cx + hw, cy - hh, cz - hd], // Back-bottom: 4, 5
-    [cx + hw, cy + hh, cz - hd],
-    [cx - hw, cy + hh, cz - hd], // Back-top: 6, 7
+    [cx - hw, cy - hh, cz + hd], // 0
+    [cx + hw, cy - hh, cz + hd], // 1
+    [cx + hw, cy + hh, cz + hd], // 2
+    [cx - hw, cy + hh, cz + hd], // 3
+    [cx - hw, cy - hh, cz - hd], // 4
+    [cx + hw, cy - hh, cz - hd], // 5
+    [cx + hw, cy + hh, cz - hd], // 6
+    [cx - hw, cy + hh, cz - hd], // 7
   ]
 
-  return [
+  const tris: Triangle[] = [
     {
       vertices: [p[0], p[1], p[2]],
       color,
@@ -219,26 +233,6 @@ export const createBox = (center: Vec3, size: Vec3, color: Vec3, material?: stri
       ],
     }, // Top
     {
-      vertices: [p[4], p[5], p[1]],
-      color,
-      material,
-      uvs: [
-        [0, 0],
-        [1, 0],
-        [1, 1],
-      ],
-    },
-    {
-      vertices: [p[4], p[1], p[0]],
-      color,
-      material,
-      uvs: [
-        [0, 0],
-        [1, 1],
-        [0, 1],
-      ],
-    }, // Bottom
-    {
       vertices: [p[1], p[5], p[6]],
       color,
       material,
@@ -279,6 +273,33 @@ export const createBox = (center: Vec3, size: Vec3, color: Vec3, material?: stri
       ],
     }, // Left
   ]
+
+  if (!omitBottom) {
+    tris.push(
+      {
+        vertices: [p[4], p[5], p[1]],
+        color,
+        material,
+        uvs: [
+          [0, 0],
+          [1, 0],
+          [1, 1],
+        ],
+      },
+      {
+        vertices: [p[4], p[1], p[0]],
+        color,
+        material,
+        uvs: [
+          [0, 0],
+          [1, 1],
+          [0, 1],
+        ],
+      },
+    )
+  }
+
+  return tris
 }
 
 export const createSphere = (
@@ -286,10 +307,11 @@ export const createSphere = (
   radius: number,
   color: Vec3,
   hemisphere = false,
+  rings = 8,
+  sectors = 12,
 ): Triangle[] => {
   const t: Triangle[] = []
-  const rings = hemisphere ? 2 : 3
-  const sectors = 5
+  if (hemisphere) rings = Math.max(2, Math.floor(rings / 2))
   const R = hemisphere ? (1 / (rings - 1)) * 0.5 : 1 / (rings - 1)
   const S = 1 / (sectors - 1)
 

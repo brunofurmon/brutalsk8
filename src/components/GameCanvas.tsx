@@ -6,34 +6,7 @@ import { inputState } from '@/lib/input'
 export function GameCanvas({ onJump }: { onJump?: () => void }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
-  const texturesRef = useRef<Record<string, HTMLImageElement | null>>({
-    ground: null,
-    wood: null,
-    concrete: null,
-  })
-
   useEffect(() => {
-    const loadImg = (key: string, url: string) => {
-      const img = new Image()
-      img.crossOrigin = 'anonymous'
-      img.src = url
-      img.onload = () => {
-        texturesRef.current[key] = img
-      }
-    }
-    loadImg(
-      'ground',
-      'https://images.unsplash.com/photo-1620286811904-89ce86e680a6?q=80&w=512&auto=format&fit=crop',
-    )
-    loadImg(
-      'wood',
-      'https://images.unsplash.com/photo-1533035353720-f1c6a75cd8ab?q=80&w=512&auto=format&fit=crop',
-    )
-    loadImg(
-      'concrete',
-      'https://images.unsplash.com/photo-1518099074172-2e47ee6cb394?q=80&w=512&auto=format&fit=crop',
-    )
-
     const canvas = canvasRef.current
     const container = containerRef.current
     if (!canvas || !container) return
@@ -60,24 +33,25 @@ export function GameCanvas({ onJump }: { onJump?: () => void }) {
       boardAngle = 0
     const propsState = Array.from({ length: 150 }).map(() => {
       const isBox = Math.random() > 0.3
-      const material = Math.random() > 0.5 ? 'wood' : 'concrete'
+      const isWood = Math.random() > 0.5
       return {
         type: isBox ? 'box' : 'ramp',
-        material: material,
         x: (Math.random() - 0.5) * 13000,
         z: (Math.random() - 0.5) * 13000,
-        color: [
-          Math.random() * 50 + 20,
-          Math.random() * 50 + 100,
-          Math.random() * 50 + 200,
-        ] as Vec3,
+        // Cores sólidas: madeira marrom ou concreto cinza
+        color: (isWood
+          ? [139, 90, 43] // madeira marrom
+          : [160, 160, 160]) as Vec3, // concreto cinza
       }
     })
 
     // Constants
     const SPEED = 18
-    const JUMP_VEL = 42
-    const GRAVITY = 2.25
+    // Jump physics: mesma altura de pico, mas arco ~1.75x mais longo.
+    // Mantem H = v²/2g constante e multiplica o tempo de ar (2v/g) por 1.75:
+    //   g_new = g / 1.75² ,  v_new = v / 1.75
+    const JUMP_VEL = 24
+    const GRAVITY = 0.735
     const CAM_Y = 160
     const CAM_Z = -350
     const PLAYER_Z = 150
@@ -104,15 +78,241 @@ export function GameCanvas({ onJump }: { onJump?: () => void }) {
       return [dx, dy * cy - dz * sy, dy * sy + dz * cy]
     }
 
+    const transformTriangles = (
+      tris: Triangle[],
+      translate: Vec3,
+      scale: Vec3 = [1, 1, 1],
+      rotateY: number = 0,
+      rotateZ: number = 0,
+      rotateX: number = 0,
+    ): Triangle[] => {
+      const cy = Math.cos(rotateY),
+        sy = Math.sin(rotateY)
+      const cz = Math.cos(rotateZ),
+        sz = Math.sin(rotateZ)
+      const cx = Math.cos(rotateX),
+        sx = Math.sin(rotateX)
+
+      return tris.map((t) => ({
+        ...t,
+        vertices: t.vertices.map((v) => {
+          let x = v[0] * scale[0]
+          let y = v[1] * scale[1]
+          let z = v[2] * scale[2]
+
+          let y1 = y * cx - z * sx
+          let z1 = y * sx + z * cx
+          y = y1
+          z = z1
+
+          let x1 = x * cz - y * sz
+          let y2 = x * sz + y * cz
+          x = x1
+          y = y2
+
+          let x2 = x * cy - z * sy
+          let z2 = x * sy + z * cy
+          x = x2
+          z = z2
+
+          return [x + translate[0], y + translate[1], z + translate[2]] as Vec3
+        }) as [Vec3, Vec3, Vec3],
+      }))
+    }
+
+    const createCharacter = (y: number, zCenter: number): (Triangle & { layer: number })[] => {
+      const charTriangles: (Triangle & { layer: number })[] = []
+      const charColor: Vec3 = [225, 29, 72]
+      const skinColor: Vec3 = [252, 211, 161]
+      const pantsColor: Vec3 = [30, 64, 175]
+      const shoeColor: Vec3 = [255, 255, 255]
+
+      const unitSphere = createSphere([0, 0, 0], 1, charColor, false, 8, 12)
+      const unitSkin = createSphere([0, 0, 0], 1, skinColor, false, 8, 12)
+      const unitPants = createSphere([0, 0, 0], 1, pantsColor, false, 8, 12)
+      const unitShoe = createSphere([0, 0, 0], 1, shoeColor, false, 6, 8)
+
+      const bY = y + 10.5
+      const s = 1.6
+
+      charTriangles.push(
+        ...transformTriangles(
+          unitShoe,
+          [0, bY + 3 * s, zCenter + 18],
+          [6 * s, 3 * s, 11 * s],
+          0,
+          0,
+          0,
+        ).map((t) => ({ ...t, layer: 2 })),
+      )
+      charTriangles.push(
+        ...transformTriangles(
+          unitShoe,
+          [0, bY + 3 * s, zCenter - 18],
+          [6 * s, 3 * s, 11 * s],
+          0,
+          0,
+          0,
+        ).map((t) => ({ ...t, layer: 2 })),
+      )
+      charTriangles.push(
+        ...transformTriangles(
+          unitPants,
+          [0, bY + 20 * s, zCenter + 18],
+          [5 * s, 16 * s, 5 * s],
+          0,
+          0,
+          0.05,
+        ).map((t) => ({ ...t, layer: 2 })),
+      )
+      charTriangles.push(
+        ...transformTriangles(
+          unitPants,
+          [0, bY + 20 * s, zCenter - 18],
+          [5 * s, 16 * s, 5 * s],
+          0,
+          0,
+          -0.05,
+        ).map((t) => ({ ...t, layer: 2 })),
+      )
+      charTriangles.push(
+        ...transformTriangles(
+          unitSphere,
+          [0, bY + 46 * s, zCenter],
+          [10 * s, 16 * s, 8 * s],
+          0,
+          0.2,
+          0,
+        ).map((t) => ({ ...t, layer: 2 })),
+      )
+      charTriangles.push(
+        ...transformTriangles(
+          unitSkin,
+          [2 * s, bY + 68 * s, zCenter],
+          [6 * s, 7 * s, 6 * s],
+          0,
+          0.2,
+          0,
+        ).map((t) => ({ ...t, layer: 3 })),
+      )
+      charTriangles.push(
+        ...transformTriangles(
+          unitSphere,
+          [0, bY + 48 * s, zCenter + 12 * s],
+          [3.5 * s, 14 * s, 3.5 * s],
+          0,
+          0.2,
+          0.3,
+        ).map((t) => ({ ...t, layer: 2 })),
+      )
+      charTriangles.push(
+        ...transformTriangles(
+          unitSphere,
+          [0, bY + 48 * s, zCenter - 12 * s],
+          [3.5 * s, 14 * s, 3.5 * s],
+          0,
+          0.2,
+          -0.3,
+        ).map((t) => ({ ...t, layer: 2 })),
+      )
+
+      return charTriangles
+    }
+
     const createSkateboard = (
       y: number,
       z: number,
       rollAngle: number,
     ): (Triangle & { layer: number })[] => {
-      const deck = createBox([0, 0, 0], [30, 5, 90], [250, 204, 21]).map((t) => ({
-        ...t,
-        layer: 1,
-      }))
+      const deckC: Vec3 = [250, 204, 21]
+      const deckTriangles: Triangle[] = []
+
+      deckTriangles.push(...createBox([0, 0, 0], [30, 5, 60], deckC))
+
+      const segments = 12
+      for (let i = 0; i < segments; i++) {
+        const a1 = (i / segments) * Math.PI
+        const a2 = ((i + 1) / segments) * Math.PI
+        const x1 = Math.cos(a1) * 15
+        const z1 = 30 + Math.sin(a1) * 15
+        const x2 = Math.cos(a2) * 15
+        const z2 = 30 + Math.sin(a2) * 15
+
+        deckTriangles.push({
+          vertices: [
+            [0, 2.5, 30],
+            [x2, 2.5, z2],
+            [x1, 2.5, z1],
+          ],
+          color: deckC,
+        })
+        deckTriangles.push({
+          vertices: [
+            [0, -2.5, 30],
+            [x1, -2.5, z1],
+            [x2, -2.5, z2],
+          ],
+          color: deckC,
+        })
+        deckTriangles.push({
+          vertices: [
+            [x1, -2.5, z1],
+            [x2, 2.5, z2],
+            [x2, -2.5, z2],
+          ],
+          color: deckC,
+        })
+        deckTriangles.push({
+          vertices: [
+            [x1, -2.5, z1],
+            [x1, 2.5, z1],
+            [x2, 2.5, z2],
+          ],
+          color: deckC,
+        })
+
+        const a1b = Math.PI + a1
+        const a2b = Math.PI + a2
+        const x1b = Math.cos(a1b) * 15
+        const z1b = -30 + Math.sin(a1b) * 15
+        const x2b = Math.cos(a2b) * 15
+        const z2b = -30 + Math.sin(a2b) * 15
+
+        deckTriangles.push({
+          vertices: [
+            [0, 2.5, -30],
+            [x2b, 2.5, z2b],
+            [x1b, 2.5, z1b],
+          ],
+          color: deckC,
+        })
+        deckTriangles.push({
+          vertices: [
+            [0, -2.5, -30],
+            [x1b, -2.5, z1b],
+            [x2b, -2.5, z2b],
+          ],
+          color: deckC,
+        })
+        deckTriangles.push({
+          vertices: [
+            [x1b, -2.5, z1b],
+            [x2b, 2.5, z2b],
+            [x2b, -2.5, z2b],
+          ],
+          color: deckC,
+        })
+        deckTriangles.push({
+          vertices: [
+            [x1b, -2.5, z1b],
+            [x1b, 2.5, z1b],
+            [x2b, 2.5, z2b],
+          ],
+          color: deckC,
+        })
+      }
+
+      const deck = deckTriangles.map((t) => ({ ...t, layer: 1 }))
 
       const wheelC: Vec3 = [40, 40, 40]
       const wheels = [
@@ -219,12 +419,6 @@ export function GameCanvas({ onJump }: { onJump?: () => void }) {
               [x + TILE_SIZE, 0, z + TILE_SIZE],
             ],
             color,
-            uvs: [
-              [0, 0],
-              [1, 0],
-              [1, 1],
-            ],
-            material: 'ground',
             isWorld: true,
             isGround: true,
           } as any)
@@ -235,12 +429,6 @@ export function GameCanvas({ onJump }: { onJump?: () => void }) {
               [x, 0, z + TILE_SIZE],
             ],
             color,
-            uvs: [
-              [0, 0],
-              [1, 1],
-              [0, 1],
-            ],
-            material: 'ground',
             isWorld: true,
             isGround: true,
           } as any)
@@ -258,11 +446,11 @@ export function GameCanvas({ onJump }: { onJump?: () => void }) {
 
         if (Math.hypot(px, pz) < HORIZON_RADIUS) {
           if (p.type === 'box') {
-            createBox([px, 30, pz], [60, 60, 60], p.color, p.material).forEach((t) => {
+            createBox([px, 30, pz], [60, 60, 60], p.color).forEach((t) => {
               triangles.push({ ...t, isWorld: true })
             })
           } else {
-            createRamp([px, 40, pz], [120, 80, 160], p.color, p.material).forEach((t) => {
+            createRamp([px, 40, pz], [120, 80, 160], p.color).forEach((t) => {
               triangles.push({ ...t, isWorld: true })
             })
           }
@@ -273,16 +461,12 @@ export function GameCanvas({ onJump }: { onJump?: () => void }) {
       createSkateboard(playerY, PLAYER_Z, boardAngle).forEach((t) => {
         triangles.push({ ...t, isWorld: false } as any)
       })
-      createPyramid([0, playerY + 45, PLAYER_Z], [40, 60, 25], [225, 29, 72]).forEach((t) => {
-        triangles.push({ ...t, isWorld: false, layer: 2 } as any)
-      })
-      // Character head as a low-poly sphere
-      createSphere([0, playerY + 85, PLAYER_Z], 18, [225, 29, 72], false).forEach((t) => {
-        triangles.push({ ...t, isWorld: false, layer: 3 } as any)
+      createCharacter(playerY, PLAYER_Z).forEach((t) => {
+        triangles.push({ ...t, isWorld: false } as any)
       })
 
       // Projection & Shading
-      type Vertex = { pos: Vec3; uv?: [number, number] }
+      type Vertex = { pos: Vec3 }
       const clipPolygon = (vertices: Vertex[], minZ: number): Vertex[] => {
         const result: Vertex[] = []
         for (let i = 0; i < vertices.length; i++) {
@@ -301,11 +485,7 @@ export function GameCanvas({ onJump }: { onJump?: () => void }) {
               v1.pos[1] + (v2.pos[1] - v1.pos[1]) * t,
               minZ,
             ]
-            let uv: [number, number] | undefined = undefined
-            if (v1.uv && v2.uv) {
-              uv = [v1.uv[0] + (v2.uv[0] - v1.uv[0]) * t, v1.uv[1] + (v2.uv[1] - v1.uv[1]) * t]
-            }
-            result.push({ pos, uv })
+            result.push({ pos })
           }
         }
         return result
@@ -328,11 +508,7 @@ export function GameCanvas({ onJump }: { onJump?: () => void }) {
           const tv1 = transform(v1, t.isWorld ?? true)
           const tv2 = transform(v2, t.isWorld ?? true)
 
-          const poly: Vertex[] = [
-            { pos: tv0, uv: t.uvs?.[0] },
-            { pos: tv1, uv: t.uvs?.[1] },
-            { pos: tv2, uv: t.uvs?.[2] },
-          ]
+          const poly: Vertex[] = [{ pos: tv0 }, { pos: tv1 }, { pos: tv2 }]
 
           const clipped = clipPolygon(poly, 10)
           if (clipped.length < 3) return null
@@ -342,15 +518,11 @@ export function GameCanvas({ onJump }: { onJump?: () => void }) {
             -v.pos[1] * (FOCAL / v.pos[2]) + height / 2,
           ])
 
-          const uvs = clipped.map((v) => v.uv)
-
           const zAvg = clipped.reduce((sum, v) => sum + v.pos[2], 0) / clipped.length
 
           return {
             pts: pts2d,
-            uvs,
             color: t.color,
-            material: t.material,
             zAvg,
             normal,
             isGround: t.isGround,
@@ -377,95 +549,31 @@ export function GameCanvas({ onJump }: { onJump?: () => void }) {
       })
 
       // Render
-      const drawTexturedTriangle = (img: HTMLImageElement, pts: number[][], uvs: number[][]) => {
-        const [x0, y0] = pts[0]
-        const [x1, y1] = pts[1]
-        const [x2, y2] = pts[2]
-
-        const w = img.naturalWidth
-        const h = img.naturalHeight
-
-        const u0 = uvs[0][0] * w,
-          v0 = uvs[0][1] * h
-        const u1 = uvs[1][0] * w,
-          v1 = uvs[1][1] * h
-        const u2 = uvs[2][0] * w,
-          v2 = uvs[2][1] * h
-
-        ctx.save()
-        ctx.beginPath()
-        ctx.moveTo(x0, y0)
-        ctx.lineTo(x1, y1)
-        ctx.lineTo(x2, y2)
-        ctx.closePath()
-        ctx.clip()
-
-        const det = (u0 - u2) * (v1 - v2) - (u1 - u2) * (v0 - v2)
-        if (Math.abs(det) > 0.0001) {
-          const a = ((x0 - x2) * (v1 - v2) - (x1 - x2) * (v0 - v2)) / det
-          const b = ((y0 - y2) * (v1 - v2) - (y1 - y2) * (v0 - v2)) / det
-          const c = ((u0 - u2) * (x1 - x2) - (u1 - u2) * (x0 - x2)) / det
-          const d = ((u0 - u2) * (y1 - y2) - (u1 - u2) * (y0 - y2)) / det
-          const e = x0 - a * u0 - c * v0
-          const f = y0 - b * u0 - d * v0
-
-          ctx.transform(a, b, c, d, e, f)
-          ctx.drawImage(img, 0, 0)
-        }
-        ctx.restore()
-      }
-
       ctx.lineJoin = 'miter'
       for (const p of projected) {
         const intensity = 0.35 + 0.65 * Math.max(0, dot(p.normal, lightDir))
 
-        let textured = false
-        if (p.material && p.uvs && !p.uvs.includes(undefined)) {
-          const img = texturesRef.current[p.material]
-          if (img && img.complete && img.naturalWidth > 0) {
-            for (let i = 1; i < p.pts.length - 1; i++) {
-              drawTexturedTriangle(
-                img,
-                [p.pts[0], p.pts[i], p.pts[i + 1]],
-                [p.uvs[0], p.uvs[i], p.uvs[i + 1]],
-              )
-            }
-            // Shadow overlay over texture
-            ctx.fillStyle = `rgba(0,0,0,${1 - intensity})`
-            ctx.beginPath()
-            ctx.moveTo(p.pts[0][0], p.pts[0][1])
-            for (let i = 1; i < p.pts.length; i++) {
-              ctx.lineTo(p.pts[i][0], p.pts[i][1])
-            }
-            ctx.closePath()
-            ctx.fill()
-            textured = true
-          }
+        const r = Math.floor(p.color[0] * intensity)
+        const g = Math.floor(p.color[1] * intensity)
+        const b = Math.floor(p.color[2] * intensity)
+
+        ctx.fillStyle = `rgb(${r},${g},${b})`
+        if (p.isGround) {
+          ctx.strokeStyle = `rgb(${r},${g},${b})`
+          ctx.lineWidth = 1
+        } else {
+          ctx.strokeStyle = `rgb(${Math.max(0, r - 15)},${Math.max(0, g - 15)},${Math.max(0, b - 15)})`
+          ctx.lineWidth = 1.5
         }
 
-        if (!textured) {
-          const r = Math.floor(p.color[0] * intensity)
-          const g = Math.floor(p.color[1] * intensity)
-          const b = Math.floor(p.color[2] * intensity)
-
-          ctx.fillStyle = `rgb(${r},${g},${b})`
-          if (p.isGround) {
-            ctx.strokeStyle = `rgb(${r},${g},${b})`
-            ctx.lineWidth = 1
-          } else {
-            ctx.strokeStyle = `rgb(${Math.max(0, r - 15)},${Math.max(0, g - 15)},${Math.max(0, b - 15)})`
-            ctx.lineWidth = 1.5
-          }
-
-          ctx.beginPath()
-          ctx.moveTo(p.pts[0][0], p.pts[0][1])
-          for (let i = 1; i < p.pts.length; i++) {
-            ctx.lineTo(p.pts[i][0], p.pts[i][1])
-          }
-          ctx.closePath()
-          ctx.fill()
-          ctx.stroke()
+        ctx.beginPath()
+        ctx.moveTo(p.pts[0][0], p.pts[0][1])
+        for (let i = 1; i < p.pts.length; i++) {
+          ctx.lineTo(p.pts[i][0], p.pts[i][1])
         }
+        ctx.closePath()
+        ctx.fill()
+        ctx.stroke()
       }
       animationId = requestAnimationFrame(loop)
     }
