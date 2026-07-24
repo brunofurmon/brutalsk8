@@ -1,46 +1,113 @@
+import { useRef, useState, useCallback } from 'react'
 import { inputState } from '@/lib/input'
 import { cn } from '@/lib/utils'
-import { ArrowUp, ArrowDown, ArrowLeft, ArrowRight } from 'lucide-react'
+
+const DEAD_ZONE = 10 // px — ignora toques muito perto do centro
 
 export function TouchControls() {
+  const baseRef = useRef<HTMLDivElement>(null)
+  const pointerIdRef = useRef<number | null>(null)
+  const [thumb, setThumb] = useState<{ x: number; y: number } | null>(null)
+
+  const resetInput = useCallback(() => {
+    inputState.w = false
+    inputState.a = false
+    inputState.s = false
+    inputState.d = false
+  }, [])
+
+  const updateInput = useCallback(
+    (clientX: number, clientY: number) => {
+      const base = baseRef.current
+      if (!base) return
+      const rect = base.getBoundingClientRect()
+      const centerX = rect.left + rect.width / 2
+      const centerY = rect.top + rect.height / 2
+
+      let dx = clientX - centerX
+      let dy = clientY - centerY
+
+      const dist = Math.sqrt(dx * dx + dy * dy)
+      if (dist < DEAD_ZONE) {
+        resetInput()
+        setThumb(null)
+        return
+      }
+
+      // Limita o thumb ao raio do botão para feedback visual
+      const radius = rect.width / 2
+      if (dist > radius) {
+        dx = (dx / dist) * radius
+        dy = (dy / dist) * radius
+      }
+      setThumb({ x: dx, y: dy })
+
+      // Direção pelo ângulo em relação ao centro
+      inputState.w = dy < 0 // metade superior
+      inputState.s = dy > 0 // metade inferior
+      inputState.a = dx < 0 // metade esquerda
+      inputState.d = dx > 0 // metade direita
+    },
+    [resetInput],
+  )
+
+  const handlePointerDown = useCallback(
+    (e: React.PointerEvent) => {
+      e.preventDefault()
+      pointerIdRef.current = e.pointerId
+      ;(e.target as HTMLElement).setPointerCapture?.(e.pointerId)
+      updateInput(e.clientX, e.clientY)
+    },
+    [updateInput],
+  )
+
+  const handlePointerMove = useCallback(
+    (e: React.PointerEvent) => {
+      if (pointerIdRef.current !== e.pointerId) return
+      e.preventDefault()
+      updateInput(e.clientX, e.clientY)
+    },
+    [updateInput],
+  )
+
+  const handlePointerEnd = useCallback(
+    (e: React.PointerEvent) => {
+      if (pointerIdRef.current !== e.pointerId) return
+      e.preventDefault()
+      pointerIdRef.current = null
+      resetInput()
+      setThumb(null)
+    },
+    [resetInput],
+  )
+
   const handleTouch =
     (key: keyof typeof inputState, state: boolean) => (e: React.SyntheticEvent) => {
       e.preventDefault()
       inputState[key] = state
     }
 
-  const ControlButton = ({
-    icon: Icon,
-    action,
-    className,
-  }: {
-    icon: any
-    action: keyof typeof inputState
-    className?: string
-  }) => (
-    <button
-      className={cn(
-        'bg-white/20 active:bg-white/40 backdrop-blur-sm p-4 rounded-lg flex items-center justify-center border border-white/10 touch-none',
-        className,
-      )}
-      onPointerDown={handleTouch(action, true)}
-      onPointerUp={handleTouch(action, false)}
-      onPointerLeave={handleTouch(action, false)}
-    >
-      <Icon className="w-8 h-8 text-white" />
-    </button>
-  )
-
   return (
     <div className="absolute inset-0 z-20 pointer-events-none flex items-end justify-between p-6 md:hidden">
-      {/* D-Pad */}
-      <div className="grid grid-cols-3 gap-2 pointer-events-auto w-48 h-48">
-        <div />
-        <ControlButton icon={ArrowUp} action="w" />
-        <div />
-        <ControlButton icon={ArrowLeft} action="a" />
-        <ControlButton icon={ArrowDown} action="s" />
-        <ControlButton icon={ArrowRight} action="d" />
+      {/* Joystick analógico */}
+      <div
+        ref={baseRef}
+        onPointerDown={handlePointerDown}
+        onPointerMove={handlePointerMove}
+        onPointerUp={handlePointerEnd}
+        onPointerLeave={handlePointerEnd}
+        className="pointer-events-auto relative w-40 h-40 rounded-full bg-white/20 backdrop-blur-sm border border-white/10 touch-none flex items-center justify-center select-none"
+      >
+        {/* crosshair guia */}
+        <div className="absolute inset-0 rounded-full border border-white/5" />
+        {/* thumb que segue o dedo */}
+        <div
+          className="absolute w-16 h-16 rounded-full bg-white/40 border border-white/30 shadow-lg pointer-events-none transition-transform duration-75"
+          style={{
+            transform: thumb ? `translate(${thumb.x}px, ${thumb.y}px)` : 'translate(0, 0)',
+            opacity: thumb ? 1 : 0.6,
+          }}
+        />
       </div>
 
       {/* Jump Button */}
