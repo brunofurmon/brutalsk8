@@ -112,6 +112,165 @@ export const createBox = (
   return tris
 }
 
+export interface MiniRampParams {
+  /** Largura total da rampa (eixo X). */
+  width: number
+  /** Profundidade total (eixo Z): flat + 2 * transição. */
+  depth: number
+  /** Profundidade de cada transição curva (eixo Z). */
+  transitionDepth: number
+  /** Altura do topo da transição (coping). */
+  height: number
+  /** Raio da transição (quarter circle). Deve ser ≈ height para transição perfeita. */
+  radius: number
+  /** Segmentos de cada transição. */
+  segments: number
+}
+
+/**
+ * Cor cinza concreto sólido.
+ */
+const CONCRETE: Vec3 = [150, 150, 150]
+const CONCRETE_DECK: Vec3 = [130, 130, 130]
+const COPIING: Vec3 = [200, 200, 210]
+
+/**
+ * Cria a geometria de uma mini-ramp: duas transições (quarter-pipes nas
+ * laterais) ligadas por um flat central, com coping metálico no topo de cada
+ * transição e decks (plataformas) atrás. Tudo com triângulos, cores sólidas.
+ *
+ * A rampa é centrada na origem e fica fixa no mundo (eixos: X = largura,
+ * Z = profundidade, Y = altura).
+ */
+export const createMiniRamp = (p: MiniRampParams): Triangle[] => {
+  const { width, depth, transitionDepth, height, radius, segments } = p
+  const halfW = width / 2
+  const flatDepth = depth - 2 * transitionDepth
+
+  const tris: Triangle[] = []
+
+  // ---- Plataforma central (flat) ----
+  tris.push({
+    vertices: [
+      [-halfW, 0, -flatDepth / 2],
+      [halfW, 0, -flatDepth / 2],
+      [halfW, 0, flatDepth / 2],
+    ],
+    color: CONCRETE,
+  })
+  tris.push({
+    vertices: [
+      [-halfW, 0, -flatDepth / 2],
+      [halfW, 0, flatDepth / 2],
+      [-halfW, 0, flatDepth / 2],
+    ],
+    color: CONCRETE,
+  })
+
+  // ---- Transições (quarter-pipes) nas laterais +Z e -Z ----
+  // Função para gerar uma transição curva virada "para dentro" (flat).
+  const addTransition = (side: 1 | -1) => {
+    // side=+1: transição em +Z, curva vai do flat (z=flatDepth/2, y=0) até o
+    // topo (z=flatDepth/2+transitionDepth, y=height).
+    const flatZ = side * (flatDepth / 2)
+    // Centro da curva (centro do círculo da transição) está em y=height,
+    // z=flatZ (raio vertical até o ponto base). Verifica coerência.
+    const centerZ = flatZ
+    const centerY = height
+
+    const segs = Math.max(2, segments)
+    const strip: { pos: Vec3 }[] = []
+    for (let i = 0; i <= segs; i++) {
+      const ang = (i / segs) * (Math.PI / 2)
+      // ang=0: ponto base (flat), ang=PI/2: topo da transição.
+      const y = centerY - radius * Math.cos(ang)
+      const z = centerZ + side * radius * Math.sin(ang)
+      strip.push({ pos: [-halfW, y, z] })
+    }
+
+    // Faixas longitudinais (x) por dois pontos consecutivos da curva = quad
+    // dividido em 2 triângulos. Fazemos a largura em um único quad (sem
+    // subdivisão em X) — a luz destaca as faixas em Z.
+    for (let i = 0; i < strip.length - 1; i++) {
+      const a = strip[i].pos
+      const b = strip[i + 1].pos
+      const aR: Vec3 = [a[0] + width, a[1], a[2]]
+      const bR: Vec3 = [b[0] + width, b[1], b[2]]
+      tris.push({ vertices: [a, aR, bR], color: CONCRETE })
+      tris.push({ vertices: [a, bR, b], color: CONCRETE })
+    }
+
+    // Verticais nas extremidades em X (fecham as laterais da transição).
+    for (let i = 0; i < strip.length - 1; i++) {
+      const a = strip[i].pos
+      const b = strip[i + 1].pos
+      // Lateral -X
+      tris.push({ vertices: [[a[0], 0, a[2]], a, b], color: CONCRETE_DECK })
+      tris.push({ vertices: [[a[0], 0, a[2]], b, [b[0], 0, b[2]]], color: CONCRETE_DECK })
+      // Lateral +X
+      const aR: Vec3 = [a[0] + width, a[1], a[2]]
+      const bR: Vec3 = [b[0] + width, b[1], b[2]]
+      tris.push({ vertices: [[aR[0], 0, aR[2]], bR, aR], color: CONCRETE_DECK })
+      tris.push({ vertices: [[aR[0], 0, aR[2]], [bR[0], 0, bR[2]], bR], color: CONCRETE_DECK })
+    }
+
+    // ---- Deck (plataforma atrás da transição) ----
+    const deckZ = flatZ + side * transitionDepth
+    const deckBackZ = flatZ + side * (transitionDepth + 40)
+    tris.push({
+      vertices: [
+        [-halfW, height, deckZ],
+        [halfW, height, deckZ],
+        [halfW, height, deckBackZ],
+      ],
+      color: CONCRETE_DECK,
+    })
+    tris.push({
+      vertices: [
+        [-halfW, height, deckZ],
+        [halfW, height, deckBackZ],
+        [-halfW, height, deckBackZ],
+      ],
+      color: CONCRETE_DECK,
+    })
+
+    // ---- Coping (cilindro fino no topo da transição, em toda a largura) ----
+    const copingY = height
+    const copingZ = deckZ
+    const copingR = 2.5
+    const copingSegs = 8
+    for (let i = 0; i < copingSegs; i++) {
+      const a1 = (i / copingSegs) * Math.PI * 2
+      const a2 = ((i + 1) / copingSegs) * Math.PI * 2
+      const y1 = copingY + Math.sin(a1) * copingR
+      const z1 = copingZ + Math.cos(a1) * copingR
+      const y2 = copingY + Math.sin(a2) * copingR
+      const z2 = copingZ + Math.cos(a2) * copingR
+      tris.push({
+        vertices: [
+          [-halfW, y1, z1],
+          [halfW, y1, z1],
+          [halfW, y2, z2],
+        ],
+        color: COPIING,
+      })
+      tris.push({
+        vertices: [
+          [-halfW, y1, z1],
+          [halfW, y2, z2],
+          [-halfW, y2, z2],
+        ],
+        color: COPIING,
+      })
+    }
+  }
+
+  addTransition(1)
+  addTransition(-1)
+
+  return tris
+}
+
 export const createSphere = (
   center: Vec3,
   radius: number,

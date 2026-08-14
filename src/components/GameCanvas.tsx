@@ -1,13 +1,37 @@
 import { useEffect, useRef } from 'react'
 import { Vec3, sub, cross, dot, normalize } from '@/lib/math3d'
-import { Triangle, createBox, createSphere, createPyramid, createRamp } from '@/lib/geometry'
-import { inputState } from '@/lib/input'
+import { Triangle, createMiniRamp } from '@/lib/geometry'
+import { inputState, consumeTrick } from '@/lib/input'
+
+export type TrickId = 'flip' | 'grab' | 'grind' | 'lip' | '360flip' | 'fsflip'
+
+export interface TrickDef {
+  id: TrickId
+  label: string
+  points: number
+}
+
+export const TRICK_DEFS: TrickDef[] = [
+  { id: 'flip', label: 'Kickflip', points: 100 },
+  { id: 'grab', label: 'Grab', points: 120 },
+  { id: 'grind', label: 'Grind', points: 150 },
+  { id: 'lip', label: 'Lip Trick', points: 180 },
+  { id: '360flip', label: '360 Flip', points: 220 },
+  { id: 'fsflip', label: 'FS Flip', points: 200 },
+]
+
+export type GameState = {
+  score: number
+  /** Manobras já concluídas pelo menos uma vez (id -> true). */
+  completed: Record<string, boolean>
+  /** Mensagem flutuante da última manobra (para o HUD). */
+  lastTrick: { id: TrickId; label: string; points: number } | null
+  /** Quantas vezes cada manobra foi feita. */
+  counts: Record<string, number>
+}
 
 type Vertex = { pos: Vec3 }
 
-/**
- * Clipping de polígonos contra o plano z = minZ (near plane).
- */
 const clipPolygon = (vertices: Vertex[], minZ: number): Vertex[] => {
   const result: Vertex[] = []
   for (let i = 0; i < vertices.length; i++) {
@@ -15,10 +39,7 @@ const clipPolygon = (vertices: Vertex[], minZ: number): Vertex[] => {
     const v2 = vertices[(i + 1) % vertices.length]
     const d1 = v1.pos[2] - minZ
     const d2 = v2.pos[2] - minZ
-
-    if (d1 >= 0) {
-      result.push(v1)
-    }
+    if (d1 >= 0) result.push(v1)
     if (d1 * d2 < 0) {
       const t = d1 / (d1 - d2)
       const pos: Vec3 = [
@@ -37,23 +58,15 @@ type ProjectedPoly = {
   color: Vec3
   zAvg: number
   normal: Vec3
-  isGround?: boolean
-  layer?: number
 }
 
-/**
- * Projeta, aplica sombreamento (lambert), ordena por profundidade e renderiza
- * a lista de triângulos no contexto fornecido. Função pura — não depende do
- * estado mutável do loop, apenas dos argumentos.
- */
 const renderTriangles = (
   ctx: CanvasRenderingContext2D,
   triangles: Triangle[],
   width: number,
   height: number,
-  worldAngle: number,
   FOCAL: number,
-  transform: (v: Vec3, isWorld?: boolean) => Vec3,
+  transform: (v: Vec3) => Vec3,
   lightDir: Vec3,
 ) => {
   const projected: ProjectedPoly[] = []
@@ -61,17 +74,11 @@ const renderTriangles = (
     const v0 = t.vertices[0],
       v1 = t.vertices[1],
       v2 = t.vertices[2]
+    const normal = normalize(cross(sub(v1, v0), sub(v2, v0)))
 
-    let normal = normalize(cross(sub(v1, v0), sub(v2, v0)))
-    if (t.isWorld) {
-      const cA = Math.cos(-worldAngle),
-        sA = Math.sin(-worldAngle)
-      normal = [normal[0] * cA - normal[2] * sA, normal[1], normal[0] * sA + normal[2] * cA]
-    }
-
-    const tv0 = transform(v0, t.isWorld ?? true)
-    const tv1 = transform(v1, t.isWorld ?? true)
-    const tv2 = transform(v2, t.isWorld ?? true)
+    const tv0 = transform(v0)
+    const tv1 = transform(v1)
+    const tv2 = transform(v2)
 
     const clipped = clipPolygon([{ pos: tv0 }, { pos: tv1 }, { pos: tv2 }], 10)
     if (clipped.length < 3) continue
@@ -81,60 +88,208 @@ const renderTriangles = (
       -v.pos[1] * (FOCAL / v.pos[2]) + height / 2,
     ])
     const zAvg = clipped.reduce((sum, v) => sum + v.pos[2], 0) / clipped.length
-
-    projected.push({ pts, color: t.color, zAvg, normal, isGround: t.isGround, layer: t.layer })
+    projected.push({ pts, color: t.color, zAvg, normal })
   }
 
-  projected.sort((a, b) => {
-    if (a.isGround && !b.isGround) return -1
-    if (!a.isGround && b.isGround) return 1
-
-    let za = a.zAvg
-    let zb = b.zAvg
-    if (a.layer !== undefined) za += (3 - a.layer) * 25
-    if (b.layer !== undefined) zb += (3 - b.layer) * 25
-    return zb - za
-  })
+  projected.sort((a, b) => b.zAvg - a.zAvg)
 
   ctx.lineJoin = 'miter'
   for (const p of projected) {
-    const intensity = 0.35 + 0.65 * Math.max(0, dot(p.normal, lightDir))
-
+    const intensity = 0.4 + 0.6 * Math.max(0, dot(p.normal, lightDir))
     const r = Math.floor(p.color[0] * intensity)
     const g = Math.floor(p.color[1] * intensity)
     const b = Math.floor(p.color[2] * intensity)
-
     ctx.fillStyle = `rgb(${r},${g},${b})`
-    if (p.isGround) {
-      ctx.strokeStyle = `rgb(${r},${g},${b})`
-      ctx.lineWidth = 1
-    } else {
-      ctx.strokeStyle = `rgb(${Math.max(0, r - 15)},${Math.max(0, g - 15)},${Math.max(0, b - 15)})`
-      ctx.lineWidth = 1.5
-    }
-
+    ctx.strokeStyle = `rgb(${Math.max(0, r - 12)},${Math.max(0, g - 12)},${Math.max(0, b - 12)})`
+    ctx.lineWidth = 1
     ctx.beginPath()
     ctx.moveTo(p.pts[0][0], p.pts[0][1])
-    for (let i = 1; i < p.pts.length; i++) {
-      ctx.lineTo(p.pts[i][0], p.pts[i][1])
-    }
+    for (let i = 1; i < p.pts.length; i++) ctx.lineTo(p.pts[i][0], p.pts[i][1])
     ctx.closePath()
     ctx.fill()
     ctx.stroke()
   }
 }
 
+// ---------------------------------------------------------------------------
+// Sprite do skatista (canvas 2D, perfil). Fica sempre de frente para a câmera
+// por billboarding (drawn as a screen-space image at the projected position).
+// ---------------------------------------------------------------------------
+
+type Pose = 'idle' | 'flip' | 'grab' | 'grind' | 'lip'
+
+function drawSkater(
+  ctx: CanvasRenderingContext2D,
+  pose: Pose,
+  flipRotation: number,
+  grabT: number,
+) {
+  const w = ctx.canvas.width
+  const h = ctx.canvas.height
+  ctx.clearRect(0, 0, w, h)
+  ctx.save()
+  ctx.translate(w / 2, h * 0.86)
+  ctx.rotate(flipRotation)
+
+  const shirt: [string, string] = ['#b91c1c', '#7f1d1d']
+  const pants: [string, string] = ['#1e3a8a', '#172554']
+  const shoe = '#0f0f0f'
+  const skin = '#e9c9a0'
+  const hair = '#1c1917'
+  const board = '#facc15'
+  const wheel = '#1c1917'
+  const metal = '#9ca3af'
+
+  const leg = (lx: number, bend: number, footX: number) => {
+    ctx.strokeStyle = pants[1]
+    ctx.lineWidth = 13
+    ctx.lineCap = 'round'
+    ctx.beginPath()
+    ctx.moveTo(lx, -10)
+    ctx.lineTo(lx + bend * 0.4, -34)
+    ctx.lineTo(footX, -58)
+    ctx.stroke()
+    ctx.fillStyle = shoe
+    ctx.beginPath()
+    ctx.ellipse(footX + 6, -58, 11, 5, 0, 0, Math.PI * 2)
+    ctx.fill()
+  }
+
+  if (pose === 'grind') {
+    leg(-12, -8, -20)
+    leg(16, 6, 26)
+  } else if (pose === 'lip') {
+    leg(-6, 0, -18)
+    leg(14, -4, 24)
+  } else if (pose === 'grab') {
+    leg(-6, -18, -14)
+    leg(10, -20, 16)
+  } else {
+    leg(-8, -4, -18)
+    leg(12, 4, 24)
+  }
+
+  // Tronco (camisa)
+  ctx.fillStyle = shirt[0]
+  ctx.strokeStyle = shirt[1]
+  ctx.lineWidth = 3
+  ctx.beginPath()
+  ctx.moveTo(-13, -12)
+  ctx.lineTo(13, -12)
+  ctx.lineTo(11, -52)
+  ctx.lineTo(-11, -52)
+  ctx.closePath()
+  ctx.fill()
+  ctx.stroke()
+
+  // Braços
+  ctx.strokeStyle = shirt[1]
+  ctx.lineWidth = 9
+  ctx.lineCap = 'round'
+  if (pose === 'grab') {
+    ctx.beginPath()
+    ctx.moveTo(-9, -46)
+    ctx.lineTo(-6, -30)
+    ctx.lineTo(2, -8)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(9, -46)
+    ctx.lineTo(6, -30)
+    ctx.lineTo(2, -8)
+    ctx.stroke()
+  } else if (pose === 'lip') {
+    ctx.beginPath()
+    ctx.moveTo(-9, -46)
+    ctx.lineTo(-16, -60)
+    ctx.lineTo(-20, -74)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(9, -46)
+    ctx.lineTo(8, -28)
+    ctx.stroke()
+  } else if (pose === 'grind') {
+    ctx.beginPath()
+    ctx.moveTo(9, -46)
+    ctx.lineTo(4, -30)
+    ctx.lineTo(0, -10)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(-9, -46)
+    ctx.lineTo(-22, -40)
+    ctx.stroke()
+  } else {
+    ctx.beginPath()
+    ctx.moveTo(-9, -46)
+    ctx.lineTo(-16, -34)
+    ctx.lineTo(-22, -18)
+    ctx.stroke()
+    ctx.beginPath()
+    ctx.moveTo(9, -46)
+    ctx.lineTo(16, -34)
+    ctx.lineTo(20, -20)
+    ctx.stroke()
+  }
+
+  // Cabeça
+  ctx.fillStyle = skin
+  ctx.strokeStyle = '#b58a5e'
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  ctx.arc(2, -64, 12, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.stroke()
+  ctx.fillStyle = hair
+  ctx.beginPath()
+  ctx.arc(2, -66, 12, Math.PI, Math.PI * 2)
+  ctx.fill()
+  ctx.fillRect(-10, -68, 6, 6)
+
+  // Shape (skate) sob os pés, com rodas
+  ctx.save()
+  if (pose === 'grab') ctx.translate(0, -2 + grabT * 6)
+  ctx.fillStyle = board
+  ctx.strokeStyle = '#a16207'
+  ctx.lineWidth = 2
+  ctx.beginPath()
+  if (ctx.roundRect) {
+    ctx.roundRect(-30, -4, 60, 7, 3)
+  } else {
+    ctx.rect(-30, -4, 60, 7)
+  }
+  ctx.fill()
+  ctx.stroke()
+  ctx.fillStyle = wheel
+  ctx.beginPath()
+  ctx.arc(-20, 1, 4, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.beginPath()
+  ctx.arc(20, 1, 4, 0, Math.PI * 2)
+  ctx.fill()
+  ctx.fillStyle = metal
+  ctx.fillRect(-22, -2, 6, 3)
+  ctx.fillRect(16, -2, 6, 3)
+  ctx.restore()
+
+  ctx.restore()
+}
+
+// ---------------------------------------------------------------------------
+// Componente
+// ---------------------------------------------------------------------------
+
 export function GameCanvas({
-  onJump,
   antialiasing = true,
+  onState,
 }: {
-  onJump?: () => void
   antialiasing?: boolean
+  onState?: (s: GameState) => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
   const antialiasingRef = useRef(antialiasing)
   antialiasingRef.current = antialiasing
+  const onStateRef = useRef(onState)
+  onStateRef.current = onState
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -143,7 +298,6 @@ export function GameCanvas({
     const ctx = canvas.getContext('2d', { alpha: false })
     if (!ctx) return
 
-    // Canvas offscreen para supersampling 2x (antialiasing barato).
     const offscreen = document.createElement('canvas')
     const offCtx = offscreen.getContext('2d', { alpha: false })
     if (!offCtx) return
@@ -161,510 +315,403 @@ export function GameCanvas({
     window.addEventListener('resize', resize)
     resize()
 
-    // Game State
-    let worldX = 0,
-      worldZ = 0,
-      worldAngle = 0
-    // Velocidade angular da câmera (inércia de rotação). Incrementada pelo
-    // input (teclado/joystick) e decai com fricção quando a tecla é solta,
-    // produzindo um "drift" suave de ~0.5-1s após o release.
-    let angularVelocity = 0
-    let playerY = 0,
-      playerVY = 0,
-      boardAngle = 0
-    const propsState = Array.from({ length: 150 }).map(() => {
-      const isBox = Math.random() > 0.3
-      const isWood = Math.random() > 0.5
-      return {
-        type: isBox ? 'box' : 'ramp',
-        x: (Math.random() - 0.5) * 13000,
-        z: (Math.random() - 0.5) * 13000,
-        // Cores sólidas: madeira marrom ou concreto cinza
-        color: (isWood
-          ? [139, 90, 43] // madeira marrom
-          : [160, 160, 160]) as Vec3, // concreto cinza
-      }
-    })
+    // --- Sprite offscreen (skatista 2D, billboard) ---
+    const SPRITE_W = 220
+    const SPRITE_H = 260
+    const sprite = document.createElement('canvas')
+    sprite.width = SPRITE_W
+    sprite.height = SPRITE_H
+    const spriteCtx = sprite.getContext('2d')!
 
-    // Constants
-    const SPEED = 18
-    // Jump physics: mesma altura de pico, mas arco ~1.75x mais longo.
-    // Mantem H = v²/2g constante e multiplica o tempo de ar (2v/g) por 1.75:
-    //   g_new = g / 1.75² ,  v_new = v / 1.75
-    const JUMP_VEL = 24
-    const GRAVITY = 0.735
-    let CAM_Y = 160
-    let CAM_Z = -350
-    const PLAYER_Z = 150
-    const TILT = 0.2
-    const FOCAL = 500
-    const HORIZON_RADIUS = 6000
-    const ROT_SPEED = 0.045
-    // Inércia de rotação: ACCEL = quão rápido atinge a velocidade alvo ao
-    // pressionar; FRICTION = decaimento por frame ao soltar (drift suave).
-    // FRICTION 0.94 ⇒ cai a ~6% em ~45 frames (~0.75s a 60fps).
-    const ANGULAR_ACCEL = 0.2
-    const ANGULAR_FRICTION = 0.94
-    const ANGULAR_DEADZONE = 0.0005
-    const lightDir = normalize([0.5, 0.8, 0.5])
+    // --- Geometria estática do mundo ---
+    const RAMP = {
+      width: 700,
+      depth: 520,
+      transitionDepth: 180,
+      height: 120,
+      radius: 120,
+      segments: 16,
+    }
+    const FLAT_DEPTH = RAMP.depth - 2 * RAMP.transitionDepth // 160
+    const HALF_FLAT = FLAT_DEPTH / 2 // 80
+    const ARC_LEN = RAMP.radius * (Math.PI / 2) // comprimento de arco da transição
+    const HALF_LEN = HALF_FLAT + ARC_LEN // distância do centro ao coping
+    const COPING_Y = RAMP.height
+    const COPING_Z_POS = HALF_FLAT + RAMP.radius // +Z coping (z no topo)
+    const COPING_Z_NEG = -COPING_Z_POS
 
-    const transform = (v: Vec3, isWorld: boolean = true): Vec3 => {
-      let [dx, dy, dz] = v
-      if (isWorld) {
-        const cA = Math.cos(-worldAngle)
-        const sA = Math.sin(-worldAngle)
-        const nx = dx * cA - dz * sA
-        const nz = dx * sA + dz * cA
-        dx = nx
-        dz = nz
-      }
-      dy = dy - CAM_Y
-      dz = dz - CAM_Z
-      const cy = Math.cos(TILT),
-        sy = Math.sin(TILT)
+    const rampTris = createMiniRamp(RAMP)
+
+    // Chão de concreto ao redor da rampa.
+    const GROUND = 4000
+    const groundColor: Vec3 = [140, 140, 140]
+    const groundTris: Triangle[] = [
+      {
+        vertices: [
+          [-GROUND, 0, GROUND],
+          [GROUND, 0, GROUND],
+          [GROUND, 0, -GROUND],
+        ],
+        color: groundColor,
+      },
+      {
+        vertices: [
+          [-GROUND, 0, GROUND],
+          [GROUND, 0, -GROUND],
+          [-GROUND, 0, -GROUND],
+        ],
+        color: groundColor,
+      },
+    ]
+
+    // --- Câmera fixa (ligeiramente elevada, de frente 3/4) ---
+    const FOCAL = 520
+    const CAM: Vec3 = [0, 170, -460]
+    const CAM_PITCH = 0.16
+    const lightDir = normalize([0.45, 0.85, 0.35])
+
+    const transform = (v: Vec3): Vec3 => {
+      const dx = v[0] - CAM[0]
+      const dy = v[1] - CAM[1]
+      const dz = v[2] - CAM[2]
+      const cy = Math.cos(CAM_PITCH),
+        sy = Math.sin(CAM_PITCH)
       return [dx, dy * cy - dz * sy, dy * sy + dz * cy]
     }
 
-    const transformTriangles = (
-      tris: Triangle[],
-      translate: Vec3,
-      scale: Vec3 = [1, 1, 1],
-      rotateY: number = 0,
-      rotateZ: number = 0,
-      rotateX: number = 0,
-    ): Triangle[] => {
-      const cy = Math.cos(rotateY),
-        sy = Math.sin(rotateY)
-      const cz = Math.cos(rotateZ),
-        sz = Math.sin(rotateZ)
-      const cx = Math.cos(rotateX),
-        sx = Math.sin(rotateX)
-
-      return tris.map((t) => ({
-        ...t,
-        vertices: t.vertices.map((v) => {
-          let x = v[0] * scale[0]
-          let y = v[1] * scale[1]
-          let z = v[2] * scale[2]
-
-          let y1 = y * cx - z * sx
-          let z1 = y * sx + z * cx
-          y = y1
-          z = z1
-
-          let x1 = x * cz - y * sz
-          let y2 = x * sz + y * cz
-          x = x1
-          y = y2
-
-          let x2 = x * cy - z * sy
-          let z2 = x * sy + z * cy
-          x = x2
-          z = z2
-
-          return [x + translate[0], y + translate[1], z + translate[2]] as Vec3
-        }) as [Vec3, Vec3, Vec3],
-      }))
-    }
-
-    const createCharacter = (y: number, zCenter: number): (Triangle & { layer: number })[] => {
-      const charTriangles: (Triangle & { layer: number })[] = []
-      const charColor: Vec3 = [225, 29, 72]
-      const skinColor: Vec3 = [252, 211, 161]
-      const pantsColor: Vec3 = [30, 64, 175]
-      const shoeColor: Vec3 = [255, 255, 255]
-
-      const unitSphere = createSphere([0, 0, 0], 1, charColor, false, 8, 12)
-      const unitSkin = createSphere([0, 0, 0], 1, skinColor, false, 8, 12)
-      const unitPants = createSphere([0, 0, 0], 1, pantsColor, false, 8, 12)
-      const unitShoe = createSphere([0, 0, 0], 1, shoeColor, false, 6, 8)
-
-      const bY = y + 10.5
-      const s = 1.6
-
-      charTriangles.push(
-        ...transformTriangles(
-          unitShoe,
-          [0, bY + 3 * s, zCenter + 18],
-          [6 * s, 3 * s, 11 * s],
-          0,
-          0,
-          0,
-        ).map((t) => ({ ...t, layer: 2 })),
-      )
-      charTriangles.push(
-        ...transformTriangles(
-          unitShoe,
-          [0, bY + 3 * s, zCenter - 18],
-          [6 * s, 3 * s, 11 * s],
-          0,
-          0,
-          0,
-        ).map((t) => ({ ...t, layer: 2 })),
-      )
-      charTriangles.push(
-        ...transformTriangles(
-          unitPants,
-          [0, bY + 20 * s, zCenter + 18],
-          [5 * s, 16 * s, 5 * s],
-          0,
-          0,
-          0.05,
-        ).map((t) => ({ ...t, layer: 2 })),
-      )
-      charTriangles.push(
-        ...transformTriangles(
-          unitPants,
-          [0, bY + 20 * s, zCenter - 18],
-          [5 * s, 16 * s, 5 * s],
-          0,
-          0,
-          -0.05,
-        ).map((t) => ({ ...t, layer: 2 })),
-      )
-      charTriangles.push(
-        ...transformTriangles(
-          unitSphere,
-          [0, bY + 46 * s, zCenter],
-          [10 * s, 16 * s, 8 * s],
-          0,
-          0.2,
-          0,
-        ).map((t) => ({ ...t, layer: 2 })),
-      )
-      charTriangles.push(
-        ...transformTriangles(
-          unitSkin,
-          [2 * s, bY + 68 * s, zCenter],
-          [6 * s, 7 * s, 6 * s],
-          0,
-          0.2,
-          0,
-        ).map((t) => ({ ...t, layer: 3 })),
-      )
-      charTriangles.push(
-        ...transformTriangles(
-          unitSphere,
-          [0, bY + 48 * s, zCenter + 12 * s],
-          [3.5 * s, 14 * s, 3.5 * s],
-          0,
-          0.2,
-          0.3,
-        ).map((t) => ({ ...t, layer: 2 })),
-      )
-      charTriangles.push(
-        ...transformTriangles(
-          unitSphere,
-          [0, bY + 48 * s, zCenter - 12 * s],
-          [3.5 * s, 14 * s, 3.5 * s],
-          0,
-          0.2,
-          -0.3,
-        ).map((t) => ({ ...t, layer: 2 })),
-      )
-
-      return charTriangles
-    }
-
-    const createSkateboard = (
-      y: number,
-      z: number,
-      rollAngle: number,
-    ): (Triangle & { layer: number })[] => {
-      const deckC: Vec3 = [250, 204, 21]
-      const deckTriangles: Triangle[] = []
-
-      deckTriangles.push(...createBox([0, 0, 0], [30, 5, 60], deckC))
-
-      const segments = 12
-      for (let i = 0; i < segments; i++) {
-        const a1 = (i / segments) * Math.PI
-        const a2 = ((i + 1) / segments) * Math.PI
-        const x1 = Math.cos(a1) * 15
-        const z1 = 30 + Math.sin(a1) * 15
-        const x2 = Math.cos(a2) * 15
-        const z2 = 30 + Math.sin(a2) * 15
-
-        deckTriangles.push({
-          vertices: [
-            [0, 2.5, 30],
-            [x2, 2.5, z2],
-            [x1, 2.5, z1],
-          ],
-          color: deckC,
-        })
-        deckTriangles.push({
-          vertices: [
-            [0, -2.5, 30],
-            [x1, -2.5, z1],
-            [x2, -2.5, z2],
-          ],
-          color: deckC,
-        })
-        deckTriangles.push({
-          vertices: [
-            [x1, -2.5, z1],
-            [x2, 2.5, z2],
-            [x2, -2.5, z2],
-          ],
-          color: deckC,
-        })
-        deckTriangles.push({
-          vertices: [
-            [x1, -2.5, z1],
-            [x1, 2.5, z1],
-            [x2, 2.5, z2],
-          ],
-          color: deckC,
-        })
-
-        const a1b = Math.PI + a1
-        const a2b = Math.PI + a2
-        const x1b = Math.cos(a1b) * 15
-        const z1b = -30 + Math.sin(a1b) * 15
-        const x2b = Math.cos(a2b) * 15
-        const z2b = -30 + Math.sin(a2b) * 15
-
-        deckTriangles.push({
-          vertices: [
-            [0, 2.5, -30],
-            [x2b, 2.5, z2b],
-            [x1b, 2.5, z1b],
-          ],
-          color: deckC,
-        })
-        deckTriangles.push({
-          vertices: [
-            [0, -2.5, -30],
-            [x1b, -2.5, z1b],
-            [x2b, -2.5, z2b],
-          ],
-          color: deckC,
-        })
-        deckTriangles.push({
-          vertices: [
-            [x1b, -2.5, z1b],
-            [x2b, 2.5, z2b],
-            [x2b, -2.5, z2b],
-          ],
-          color: deckC,
-        })
-        deckTriangles.push({
-          vertices: [
-            [x1b, -2.5, z1b],
-            [x1b, 2.5, z1b],
-            [x2b, 2.5, z2b],
-          ],
-          color: deckC,
-        })
+    /**
+     * Posição (y,z) do skatista na superfície da rampa dado um coordenada
+     * longitudinal p em [-HALF_LEN, HALF_LEN] (0 = centro do flat, ±HALF_LEN =
+     * copings). y = altura, z = profundidade.
+     */
+    const rampSurface = (p: number): { y: number; z: number } => {
+      const ap = Math.abs(p)
+      if (ap <= HALF_FLAT) {
+        return { y: 0, z: p }
       }
+      const d = ap - HALF_FLAT // distância ao longo do arco desde a borda do flat
+      const theta = (d / ARC_LEN) * (Math.PI / 2) // 0..PI/2
+      const y = RAMP.radius * (1 - Math.cos(theta))
+      const z = Math.sign(p) * (HALF_FLAT + RAMP.radius * Math.sin(theta))
+      return { y, z }
+    }
 
-      const deck = deckTriangles.map((t) => ({ ...t, layer: 1 }))
+    // --- Estado do jogo ---
+    const state: GameState = {
+      score: 0,
+      completed: {},
+      lastTrick: null,
+      counts: {},
+    }
+    const pushState = () => {
+      onStateRef.current?.({
+        score: state.score,
+        completed: { ...state.completed },
+        lastTrick: state.lastTrick,
+        counts: { ...state.counts },
+      })
+    }
 
-      const wheelC: Vec3 = [40, 40, 40]
-      const wheels = [
-        ...createPyramid([-15, -4, 25], [8, 8, 8], wheelC),
-        ...createPyramid([15, -4, 25], [8, 8, 8], wheelC),
-        ...createPyramid([-15, -4, -25], [8, 8, 8], wheelC),
-        ...createPyramid([15, -4, -25], [8, 8, 8], wheelC),
-      ].map((t) => ({ ...t, layer: 0 }))
+    const completeTrick = (id: TrickId) => {
+      const def = TRICK_DEFS.find((t) => t.id === id)!
+      const firstTime = !state.completed[id]
+      state.completed[id] = true
+      state.counts[id] = (state.counts[id] ?? 0) + 1
+      let pts = def.points
+      if (!firstTime) pts = Math.round(pts * 0.5)
+      state.score += pts
+      state.lastTrick = { id, label: def.label, points: pts }
+      // Bônus por completar todas as manobras da lista.
+      if (TRICK_DEFS.every((t) => state.completed[t.id])) {
+        const bonus = 1000
+        state.score += bonus
+        state.lastTrick = {
+          id,
+          label: `${def.label} + SET COMPLETO!`,
+          points: pts + bonus,
+        }
+        // reset para permitir repetir o set (arcade).
+        state.completed = {}
+      }
+      pushState()
+    }
 
-      const c = Math.cos(rollAngle)
-      const s = Math.sin(rollAngle)
+    // --- Física do personagem (auto pumping na rampa) ---
+    let playerX = 0
+    // Coordenada longitudinal p; o skatista oscila entre -HALF_LEN e +HALF_LEN.
+    let p = 0
+    let vp = 4.2 // velocidade longitudinal (unidades/frame)
+    let pDir: 1 | -1 = 1
 
-      return [...wheels, ...deck].map((tri) => ({
-        ...tri,
-        vertices: tri.vertices.map((v) => {
-          const rx = v[0] * c - v[1] * s
-          const ry = v[0] * s + v[1] * c
-          return [rx, ry + y + 8, v[2] + z] as Vec3
-        }) as [Vec3, Vec3, Vec3],
-      }))
+    // Estado de vôo (ao sair da rampa pelo coping).
+    type AirState = {
+      active: boolean
+      x: number
+      y: number
+      z: number
+      vy: number
+      gravity: number
+      // lado de onde saiu (+1 = +Z, -1 = -Z)
+      side: 1 | -1
+      pose: Pose
+      poseT: number
+      flipRotation: number
+      flipTarget: number
+      grabT: number
+      flipCount: number
+      didGrab: boolean
+      didLip: boolean
+    }
+    const air: AirState = {
+      active: false,
+      x: 0,
+      y: 0,
+      z: 0,
+      vy: 0,
+      gravity: 1.0,
+      side: 1,
+      pose: 'idle',
+      poseT: 0,
+      flipRotation: 0,
+      flipTarget: 0,
+      grabT: 0,
+      flipCount: 0,
+      didGrab: false,
+      didLip: false,
+    }
+
+    // Grind/lip no coping.
+    let grinding = false
+    let grindT = 0
+
+    const startAir = (side: 1 | -1) => {
+      air.active = true
+      air.x = playerX
+      air.y = COPING_Y
+      air.z = side > 0 ? COPING_Z_POS : COPING_Z_NEG
+      air.vy = 24
+      air.gravity = 1.0
+      air.side = side
+      air.pose = 'idle'
+      air.poseT = 0
+      air.flipRotation = 0
+      air.flipTarget = 0
+      air.grabT = 0
+      air.flipCount = 0
+      air.didGrab = false
+      air.didLip = false
+    }
+
+    const landAir = () => {
+      // Aterrissa sempre (arcade): volta ao coping de onde saiu e continua
+      // pumping na direção oposta (descendo a transição).
+      air.active = false
+      p = air.side > 0 ? HALF_LEN : -HALF_LEN
+      pDir = (air.side > 0 ? -1 : 1) as 1 | -1
+      vp = 4.2
+      grinding = false
+      grindT = 0
     }
 
     let animationId: number
     const loop = () => {
-      // Analog magnitude: 0 no teclado/joystick parado, 0..1 no joystick.
-      // Usa os valores analógicos quando presentes; caso contrário (teclado),
-      // velocidade total com ligar/desligar instantâneo.
-      const analogMag = Math.hypot(inputState.analogX, inputState.analogY)
-      const usingAnalog = analogMag > 0
-
-      // Rotation com inércia: o input define uma velocidade angular alvo.
-      // Ao pressionar, a velocidade acelera gradualmente até o alvo; ao
-      // soltar (alvo = 0), decai com fricção — drift suave ~0.5-1s.
-      let targetAngularVel = 0
+      // --- Input lateral (A/D ou joystick analógico) ---
+      const analogMag = Math.abs(inputState.analogX)
+      const usingAnalog = analogMag > 0.08
+      let lateral = 0
       if (usingAnalog) {
-        if (Math.abs(inputState.analogX) > 0.1) {
-          targetAngularVel = -Math.sign(inputState.analogX) * ROT_SPEED
+        lateral = inputState.analogX
+      } else {
+        if (inputState.a) lateral -= 1
+        if (inputState.d) lateral += 1
+      }
+      const LATERAL_SPEED = 6
+      const halfW = RAMP.width / 2 - 30
+      playerX += lateral * LATERAL_SPEED
+      if (playerX < -halfW) playerX = -halfW
+      if (playerX > halfW) playerX = halfW
+
+      // --- Atualização física ---
+      if (air.active) {
+        air.vy -= air.gravity
+        air.y += air.vy
+
+        // Flip rotation anima em direção ao alvo.
+        if (air.flipTarget !== 0) {
+          const remaining = air.flipTarget - air.flipRotation
+          if (Math.abs(remaining) > 0.04) {
+            air.flipRotation += remaining * 0.18
+          } else {
+            air.flipRotation = air.flipTarget
+          }
+        }
+        if (air.pose === 'grab') air.grabT = Math.min(1, air.grabT + 0.1)
+
+        // Manobras aéreas (edge-triggered).
+        if (consumeTrick('space')) {
+          air.flipCount += 1
+          air.flipTarget += Math.PI * 2
+          if (air.flipCount === 1) {
+            air.pose = 'flip'
+            air.poseT = 0
+            completeTrick('flip')
+          } else if (air.flipCount === 2) {
+            completeTrick('360flip')
+          } else {
+            completeTrick('fsflip')
+          }
+        }
+        if (consumeTrick('g') && !air.didGrab) {
+          air.didGrab = true
+          air.pose = 'grab'
+          air.grabT = 0
+          completeTrick('grab')
+        }
+        if (consumeTrick('l') && !air.didLip) {
+          // Lip trick só vale se estiver alto (próximo ao ápice/copING).
+          if (air.y > COPING_Y - 10) {
+            air.didLip = true
+            air.pose = 'lip'
+            air.poseT = 0
+            completeTrick('lip')
+          }
+        }
+
+        // Pose temporária volta ao idle após algum tempo.
+        air.poseT += 1
+        if ((air.pose === 'flip' || air.pose === 'lip') && air.poseT > 26 && air.y < COPING_Y + 8) {
+          air.pose = 'idle'
+        }
+
+        // Aterrissa quando desce de volta à altura do coping.
+        if (air.vy < 0 && air.y <= COPING_Y) {
+          landAir()
         }
       } else {
-        if (inputState.a) targetAngularVel += ROT_SPEED
-        if (inputState.d) targetAngularVel -= ROT_SPEED
-      }
-
-      if (targetAngularVel !== 0) {
-        // Acelera em direção à velocidade alvo (resposta gradual ao girar).
-        angularVelocity += (targetAngularVel - angularVelocity) * ANGULAR_ACCEL
-      } else {
-        // Sem input: fricção/damping — desacelera suavemente até parar.
-        angularVelocity *= ANGULAR_FRICTION
-        if (Math.abs(angularVelocity) < ANGULAR_DEADZONE) angularVelocity = 0
-      }
-
-      worldAngle += angularVelocity
-
-      // Movement (Inverted vertical movement)
-      // No joystick, a velocidade é proporcional à magnitude do vetor analógico;
-      // analogY negativo = frente (w), positivo = trás (s).
-      const speedScale = usingAnalog ? Math.min(analogMag, 1) : 1
-      const moveX = Math.sin(-worldAngle) * SPEED * speedScale
-      const moveZ = Math.cos(-worldAngle) * SPEED * speedScale
-
-      if (usingAnalog) {
-        // Frente/trás controlados pelo analogY (negativo = frente)
-        worldX += moveX * Math.sign(-inputState.analogY)
-        worldZ += moveZ * Math.sign(-inputState.analogY)
-      } else {
-        if (inputState.w) {
-          worldX += moveX
-          worldZ += moveZ
+        // Pumping: avança longitudinalmente.
+        if (!grinding) {
+          p += pDir * vp
+          // Ao atingir o coping, sai da rampa (vôo).
+          if (p >= HALF_LEN) {
+            p = HALF_LEN
+            startAir(1)
+          } else if (p <= -HALF_LEN) {
+            p = -HALF_LEN
+            startAir(-1)
+          }
         }
-        if (inputState.s) {
-          worldX -= moveX
-          worldZ -= moveZ
+
+        // Grind: K ao passar perto do coping.
+        const surf = rampSurface(p)
+        const nearCoping = surf.y > COPING_Y - 25 && Math.abs(p) > HALF_LEN - 30
+        if (consumeTrick('k') && nearCoping && !grinding) {
+          grinding = true
+          grindT = 0
+          completeTrick('grind')
+        }
+        if (grinding) {
+          grindT += 1
+          // Grind trava no topo por alguns frames; depois solta em vôo.
+          if (grindT > 50) {
+            grinding = false
+            startAir(p > 0 ? 1 : -1)
+          }
         }
       }
 
-      // Jump & Kickflip
-      if (inputState.space && playerY === 0) {
-        playerVY = JUMP_VEL
-        if (onJump) onJump()
+      // --- Pose atual para o sprite ---
+      let pose: Pose = 'idle'
+      let flipRot = 0
+      let grabT = 0
+      if (air.active) {
+        pose = air.pose
+        flipRot = air.flipRotation
+        grabT = air.grabT
+      } else if (grinding) {
+        pose = 'grind'
       }
+      drawSkater(spriteCtx, pose, flipRot, grabT)
 
-      if (playerY > 0 || playerVY !== 0) {
-        playerY += playerVY
-        playerVY -= GRAVITY
-
-        // Complete 1 full rotation smoothly over the jump duration
-        boardAngle += (Math.PI * 2) / ((2 * JUMP_VEL) / GRAVITY)
-
-        if (playerY <= 0) {
-          playerY = 0
-          playerVY = 0
-          boardAngle = 0
-        }
-      }
-
-      // Escolhe o contexto de render: offscreen 2x (AA ligado) ou display (AA desligado).
-      // A resolução lógica (projeção, FOCAL) continua usando width/height reais.
+      // --- Render ---
       const useAA = antialiasingRef.current
       const target = useAA ? offCtx! : ctx
       const scale = useAA ? 2 : 1
-
       target.setTransform(scale, 0, 0, scale, 0, 0)
       target.clearRect(0, 0, width, height)
 
-      // Skybox Background
+      // Céu (gradiente pôr do sol) — mantido.
       const gradient = target.createLinearGradient(0, 0, 0, height)
       gradient.addColorStop(0, '#1E3A8A')
       gradient.addColorStop(1, '#F97316')
       target.fillStyle = gradient
       target.fillRect(0, 0, width, height)
 
-      // Câmera reativa ao pulo: desce e se afasta ligeiramente quando o
-      // jogador está no ar, dando mais dramaticidade ao pulo. Como `transform`
-      // é uma closure, ela captura os valores atualizados a cada frame.
-      CAM_Y = 160 - playerY * 0.25
-      CAM_Z = -350 - playerY * 0.3
-
-      // World-Fixed Sun (Infinite Distance)
-      const pxSun = 0
-      const pzSun = 15000
-      const pySun = 0
-      const tSun = transform([pxSun, pySun, pzSun], true)
-
+      // Sol 3D fixo no horizonte — mantido.
+      const sunPos: Vec3 = [0, 0, 15000]
+      const tSun = transform(sunPos)
       if (tSun[2] > 10) {
         const sx = tSun[0] * (FOCAL / tSun[2]) + width / 2
         const sy = -tSun[1] * (FOCAL / tSun[2]) + height / 2
         const sunRadius = 180
-
         target.fillStyle = '#FDE047'
         target.beginPath()
         target.arc(sx, sy, sunRadius, Math.PI, 0)
         target.fill()
       }
 
-      const triangles: Triangle[] = []
-      const TILE_SIZE = 1000
+      // Triângulos do mundo (chão + rampa).
+      const tris: Triangle[] = []
+      for (const t of groundTris) tris.push(t)
+      for (const t of rampTris) tris.push(t)
+      renderTriangles(target, tris, width, height, FOCAL, transform, lightDir)
 
-      // Floor Grid (Circular boundary) — dois triângulos por tile, em loop único.
-      const groundColor: Vec3 = [105, 105, 105]
-      for (let c = -8; c <= 8; c++) {
-        for (let r = -8; r <= 8; r++) {
-          const x = c * TILE_SIZE - (worldX % TILE_SIZE)
-          const z = r * TILE_SIZE - (worldZ % TILE_SIZE)
-          if (Math.hypot(x + TILE_SIZE / 2, z + TILE_SIZE / 2) > HORIZON_RADIUS) continue
+      // --- Posição atual do skatista ---
+      let py: number, pz: number
+      if (air.active) {
+        py = air.y
+        pz = air.z
+      } else {
+        const surf = rampSurface(p)
+        py = surf.y
+        pz = surf.z
+      }
 
-          triangles.push(
-            {
-              vertices: [
-                [x, 0, z],
-                [x + TILE_SIZE, 0, z],
-                [x + TILE_SIZE, 0, z + TILE_SIZE],
-              ],
-              color: groundColor,
-              isWorld: true,
-              isGround: true,
-            },
-            {
-              vertices: [
-                [x, 0, z],
-                [x + TILE_SIZE, 0, z + TILE_SIZE],
-                [x, 0, z + TILE_SIZE],
-              ],
-              color: groundColor,
-              isWorld: true,
-              isGround: true,
-            },
-          )
+      // Sombra projetada no chão (arcade).
+      {
+        const shadowCenter: Vec3 = [playerX, 1, pz]
+        const tsh = transform(shadowCenter)
+        if (tsh[2] > 10) {
+          const ssx = tsh[0] * (FOCAL / tsh[2]) + width / 2
+          const ssy = -tsh[1] * (FOCAL / tsh[2]) + height / 2
+          const shrink = Math.max(0.4, 1 - Math.min(1, py / (COPING_Y * 1.6)))
+          const rw = ((60 * FOCAL) / tsh[2]) * shrink
+          const rh = ((18 * FOCAL) / tsh[2]) * shrink
+          target.save()
+          target.globalAlpha = 0.3 * shrink
+          target.fillStyle = '#000'
+          target.beginPath()
+          target.ellipse(ssx, ssy, rw, rh, 0, 0, Math.PI * 2)
+          target.fill()
+          target.restore()
         }
       }
 
-      // Props (Infinite Treadmill wrapping)
-      propsState.forEach((p) => {
-        let px = p.x - worldX,
-          pz = p.z - worldZ
-        if (px < -6500) p.x += 13000
-        if (px > 6500) p.x -= 13000
-        if (pz < -6500) p.z += 13000
-        if (pz > 6500) p.z -= 13000
+      // --- Billboard do sprite ---
+      const center: Vec3 = [playerX, py + 48, pz]
+      const tc = transform(center)
+      if (tc[2] > 10) {
+        const sx = tc[0] * (FOCAL / tc[2]) + width / 2
+        const sy = -tc[1] * (FOCAL / tc[2]) + height / 2
+        const drawW = (SPRITE_W * FOCAL) / tc[2]
+        const drawH = (SPRITE_H * FOCAL) / tc[2]
+        target.save()
+        target.imageSmoothingEnabled = true
+        target.imageSmoothingQuality = 'high'
+        target.drawImage(sprite, sx - drawW / 2, sy - drawH, drawW, drawH)
+        target.restore()
+      }
 
-        if (Math.hypot(px, pz) < HORIZON_RADIUS) {
-          if (p.type === 'box') {
-            createBox([px, 30, pz], [60, 60, 60], p.color).forEach((t) => {
-              triangles.push({ ...t, isWorld: true })
-            })
-          } else {
-            createRamp([px, 40, pz], [120, 80, 160], p.color).forEach((t) => {
-              triangles.push({ ...t, isWorld: true })
-            })
-          }
-        }
-      })
-
-      // Skater
-      createSkateboard(playerY, PLAYER_Z, boardAngle).forEach((t) => {
-        triangles.push({ ...t, isWorld: false } as any)
-      })
-      createCharacter(playerY, PLAYER_Z).forEach((t) => {
-        triangles.push({ ...t, isWorld: false } as any)
-      })
-
-      // Projection, shading, sort & render — delegado ao helper puro.
-      renderTriangles(target, triangles, width, height, worldAngle, FOCAL, transform, lightDir)
-
-      // Supersampling: desenha o offscreen (2x) no canvas de display (1x) com suavização.
+      // Supersampling: desenha offscreen 2x no display 1x.
       if (useAA) {
         target.setTransform(1, 0, 0, 1, 0, 0)
         ctx.setTransform(1, 0, 0, 1, 0, 0)
@@ -677,6 +724,7 @@ export function GameCanvas({
       animationId = requestAnimationFrame(loop)
     }
 
+    pushState()
     animationId = requestAnimationFrame(loop)
     return () => {
       cancelAnimationFrame(animationId)
