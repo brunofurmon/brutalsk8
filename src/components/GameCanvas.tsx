@@ -165,6 +165,10 @@ export function GameCanvas({
     let worldX = 0,
       worldZ = 0,
       worldAngle = 0
+    // Velocidade angular da câmera (inércia de rotação). Incrementada pelo
+    // input (teclado/joystick) e decai com fricção quando a tecla é solta,
+    // produzindo um "drift" suave de ~0.5-1s após o release.
+    let angularVelocity = 0
     let playerY = 0,
       playerVY = 0,
       boardAngle = 0
@@ -196,6 +200,12 @@ export function GameCanvas({
     const FOCAL = 500
     const HORIZON_RADIUS = 6000
     const ROT_SPEED = 0.045
+    // Inércia de rotação: ACCEL = quão rápido atinge a velocidade alvo ao
+    // pressionar; FRICTION = decaimento por frame ao soltar (drift suave).
+    // FRICTION 0.94 ⇒ cai a ~6% em ~45 frames (~0.75s a 60fps).
+    const ANGULAR_ACCEL = 0.2
+    const ANGULAR_FRICTION = 0.94
+    const ANGULAR_DEADZONE = 0.0005
     const lightDir = normalize([0.5, 0.8, 0.5])
 
     const transform = (v: Vec3, isWorld: boolean = true): Vec3 => {
@@ -480,15 +490,29 @@ export function GameCanvas({
       const analogMag = Math.hypot(inputState.analogX, inputState.analogY)
       const usingAnalog = analogMag > 0
 
-      // Rotation — total no joystick (acima de threshold) e no teclado
+      // Rotation com inércia: o input define uma velocidade angular alvo.
+      // Ao pressionar, a velocidade acelera gradualmente até o alvo; ao
+      // soltar (alvo = 0), decai com fricção — drift suave ~0.5-1s.
+      let targetAngularVel = 0
       if (usingAnalog) {
         if (Math.abs(inputState.analogX) > 0.1) {
-          worldAngle -= Math.sign(inputState.analogX) * ROT_SPEED
+          targetAngularVel = -Math.sign(inputState.analogX) * ROT_SPEED
         }
       } else {
-        if (inputState.a) worldAngle += ROT_SPEED
-        if (inputState.d) worldAngle -= ROT_SPEED
+        if (inputState.a) targetAngularVel += ROT_SPEED
+        if (inputState.d) targetAngularVel -= ROT_SPEED
       }
+
+      if (targetAngularVel !== 0) {
+        // Acelera em direção à velocidade alvo (resposta gradual ao girar).
+        angularVelocity += (targetAngularVel - angularVelocity) * ANGULAR_ACCEL
+      } else {
+        // Sem input: fricção/damping — desacelera suavemente até parar.
+        angularVelocity *= ANGULAR_FRICTION
+        if (Math.abs(angularVelocity) < ANGULAR_DEADZONE) angularVelocity = 0
+      }
+
+      worldAngle += angularVelocity
 
       // Movement (Inverted vertical movement)
       // No joystick, a velocidade é proporcional à magnitude do vetor analógico;
