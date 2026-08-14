@@ -5,6 +5,7 @@ import { initKeyboardControls } from '@/lib/input'
 
 export default function Index() {
   const [flips, setFlips] = useState(0)
+  const [antialiasing, setAntialiasing] = useState(true)
 
   useEffect(() => {
     const cleanup = initKeyboardControls()
@@ -16,7 +17,7 @@ export default function Index() {
       className="relative w-full overflow-hidden font-mono select-none"
       style={{ height: '100dvh' }}
     >
-      <GameCanvas onJump={() => setFlips((f) => f + 1)} />
+      <GameCanvas onJump={() => setFlips((f) => f + 1)} antialiasing={antialiasing} />
 
       {/* HUD overlay */}
       <div className="absolute top-0 left-0 right-0 p-6 z-10 pointer-events-none flex flex-col sm:flex-row justify-between items-start">
@@ -49,6 +50,19 @@ export default function Index() {
               </span>{' '}
               <span className="ml-2">PARA PULAR</span>
             </p>
+          </div>
+
+          <div className="bg-black/40 backdrop-blur-sm border border-white/10 p-4 rounded text-white/90 text-sm mt-3 pointer-events-auto">
+            <p className="mb-2 font-bold text-white/80">OPÇÕES GRÁFICAS</p>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={antialiasing}
+                onChange={(e) => setAntialiasing(e.target.checked)}
+                className="h-4 w-4 accent-orange-500 cursor-pointer"
+              />
+              <span>Antialiasing (suavizar bordas)</span>
+            </label>
           </div>
         </div>
       </div>

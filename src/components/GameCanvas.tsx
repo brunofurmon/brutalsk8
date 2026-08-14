@@ -3,15 +3,150 @@ import { Vec3, sub, cross, dot, normalize } from '@/lib/math3d'
 import { Triangle, createBox, createSphere, createPyramid, createRamp } from '@/lib/geometry'
 import { inputState } from '@/lib/input'
 
-export function GameCanvas({ onJump }: { onJump?: () => void }) {
+type Vertex = { pos: Vec3 }
+
+/**
+ * Clipping de polígonos contra o plano z = minZ (near plane).
+ */
+const clipPolygon = (vertices: Vertex[], minZ: number): Vertex[] => {
+  const result: Vertex[] = []
+  for (let i = 0; i < vertices.length; i++) {
+    const v1 = vertices[i]
+    const v2 = vertices[(i + 1) % vertices.length]
+    const d1 = v1.pos[2] - minZ
+    const d2 = v2.pos[2] - minZ
+
+    if (d1 >= 0) {
+      result.push(v1)
+    }
+    if (d1 * d2 < 0) {
+      const t = d1 / (d1 - d2)
+      const pos: Vec3 = [
+        v1.pos[0] + (v2.pos[0] - v1.pos[0]) * t,
+        v1.pos[1] + (v2.pos[1] - v1.pos[1]) * t,
+        minZ,
+      ]
+      result.push({ pos })
+    }
+  }
+  return result
+}
+
+type ProjectedPoly = {
+  pts: number[][]
+  color: Vec3
+  zAvg: number
+  normal: Vec3
+  isGround?: boolean
+  layer?: number
+}
+
+/**
+ * Projeta, aplica sombreamento (lambert), ordena por profundidade e renderiza
+ * a lista de triângulos no contexto fornecido. Função pura — não depende do
+ * estado mutável do loop, apenas dos argumentos.
+ */
+const renderTriangles = (
+  ctx: CanvasRenderingContext2D,
+  triangles: Triangle[],
+  width: number,
+  height: number,
+  worldAngle: number,
+  FOCAL: number,
+  transform: (v: Vec3, isWorld?: boolean) => Vec3,
+  lightDir: Vec3,
+) => {
+  const projected: ProjectedPoly[] = []
+  for (const t of triangles) {
+    const v0 = t.vertices[0],
+      v1 = t.vertices[1],
+      v2 = t.vertices[2]
+
+    let normal = normalize(cross(sub(v1, v0), sub(v2, v0)))
+    if (t.isWorld) {
+      const cA = Math.cos(-worldAngle),
+        sA = Math.sin(-worldAngle)
+      normal = [normal[0] * cA - normal[2] * sA, normal[1], normal[0] * sA + normal[2] * cA]
+    }
+
+    const tv0 = transform(v0, t.isWorld ?? true)
+    const tv1 = transform(v1, t.isWorld ?? true)
+    const tv2 = transform(v2, t.isWorld ?? true)
+
+    const clipped = clipPolygon([{ pos: tv0 }, { pos: tv1 }, { pos: tv2 }], 10)
+    if (clipped.length < 3) continue
+
+    const pts = clipped.map((v) => [
+      v.pos[0] * (FOCAL / v.pos[2]) + width / 2,
+      -v.pos[1] * (FOCAL / v.pos[2]) + height / 2,
+    ])
+    const zAvg = clipped.reduce((sum, v) => sum + v.pos[2], 0) / clipped.length
+
+    projected.push({ pts, color: t.color, zAvg, normal, isGround: t.isGround, layer: t.layer })
+  }
+
+  projected.sort((a, b) => {
+    if (a.isGround && !b.isGround) return -1
+    if (!a.isGround && b.isGround) return 1
+
+    let za = a.zAvg
+    let zb = b.zAvg
+    if (a.layer !== undefined) za += (3 - a.layer) * 25
+    if (b.layer !== undefined) zb += (3 - b.layer) * 25
+    return zb - za
+  })
+
+  ctx.lineJoin = 'miter'
+  for (const p of projected) {
+    const intensity = 0.35 + 0.65 * Math.max(0, dot(p.normal, lightDir))
+
+    const r = Math.floor(p.color[0] * intensity)
+    const g = Math.floor(p.color[1] * intensity)
+    const b = Math.floor(p.color[2] * intensity)
+
+    ctx.fillStyle = `rgb(${r},${g},${b})`
+    if (p.isGround) {
+      ctx.strokeStyle = `rgb(${r},${g},${b})`
+      ctx.lineWidth = 1
+    } else {
+      ctx.strokeStyle = `rgb(${Math.max(0, r - 15)},${Math.max(0, g - 15)},${Math.max(0, b - 15)})`
+      ctx.lineWidth = 1.5
+    }
+
+    ctx.beginPath()
+    ctx.moveTo(p.pts[0][0], p.pts[0][1])
+    for (let i = 1; i < p.pts.length; i++) {
+      ctx.lineTo(p.pts[i][0], p.pts[i][1])
+    }
+    ctx.closePath()
+    ctx.fill()
+    ctx.stroke()
+  }
+}
+
+export function GameCanvas({
+  onJump,
+  antialiasing = true,
+}: {
+  onJump?: () => void
+  antialiasing?: boolean
+}) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+  const antialiasingRef = useRef(antialiasing)
+  antialiasingRef.current = antialiasing
+
   useEffect(() => {
     const canvas = canvasRef.current
     const container = containerRef.current
     if (!canvas || !container) return
     const ctx = canvas.getContext('2d', { alpha: false })
     if (!ctx) return
+
+    // Canvas offscreen para supersampling 2x (antialiasing barato).
+    const offscreen = document.createElement('canvas')
+    const offCtx = offscreen.getContext('2d', { alpha: false })
+    if (!offCtx) return
 
     let width = 0,
       height = 0
@@ -20,6 +155,8 @@ export function GameCanvas({ onJump }: { onJump?: () => void }) {
       height = container.clientHeight
       canvas.width = width
       canvas.height = height
+      offscreen.width = width * 2
+      offscreen.height = height * 2
     }
     window.addEventListener('resize', resize)
     resize()
@@ -395,14 +532,21 @@ export function GameCanvas({ onJump }: { onJump?: () => void }) {
         }
       }
 
-      ctx.clearRect(0, 0, width, height)
+      // Escolhe o contexto de render: offscreen 2x (AA ligado) ou display (AA desligado).
+      // A resolução lógica (projeção, FOCAL) continua usando width/height reais.
+      const useAA = antialiasingRef.current
+      const target = useAA ? offCtx! : ctx
+      const scale = useAA ? 2 : 1
+
+      target.setTransform(scale, 0, 0, scale, 0, 0)
+      target.clearRect(0, 0, width, height)
 
       // Skybox Background
-      const gradient = ctx.createLinearGradient(0, 0, 0, height)
+      const gradient = target.createLinearGradient(0, 0, 0, height)
       gradient.addColorStop(0, '#1E3A8A')
       gradient.addColorStop(1, '#F97316')
-      ctx.fillStyle = gradient
-      ctx.fillRect(0, 0, width, height)
+      target.fillStyle = gradient
+      target.fillRect(0, 0, width, height)
 
       // World-Fixed Sun (Infinite Distance)
       const pxSun = 0
@@ -415,45 +559,45 @@ export function GameCanvas({ onJump }: { onJump?: () => void }) {
         const sy = -tSun[1] * (FOCAL / tSun[2]) + height / 2
         const sunRadius = 180
 
-        ctx.fillStyle = '#FDE047'
-        ctx.beginPath()
-        ctx.arc(sx, sy, sunRadius, Math.PI, 0)
-        ctx.fill()
+        target.fillStyle = '#FDE047'
+        target.beginPath()
+        target.arc(sx, sy, sunRadius, Math.PI, 0)
+        target.fill()
       }
 
       const triangles: Triangle[] = []
       const TILE_SIZE = 1000
 
-      // Floor Grid (Circular boundary)
+      // Floor Grid (Circular boundary) — dois triângulos por tile, em loop único.
+      const groundColor: Vec3 = [105, 105, 105]
       for (let c = -8; c <= 8; c++) {
         for (let r = -8; r <= 8; r++) {
           const x = c * TILE_SIZE - (worldX % TILE_SIZE)
           const z = r * TILE_SIZE - (worldZ % TILE_SIZE)
-
           if (Math.hypot(x + TILE_SIZE / 2, z + TILE_SIZE / 2) > HORIZON_RADIUS) continue
 
-          const color: Vec3 = [105, 105, 105]
-
-          triangles.push({
-            vertices: [
-              [x, 0, z],
-              [x + TILE_SIZE, 0, z],
-              [x + TILE_SIZE, 0, z + TILE_SIZE],
-            ],
-            color,
-            isWorld: true,
-            isGround: true,
-          } as any)
-          triangles.push({
-            vertices: [
-              [x, 0, z],
-              [x + TILE_SIZE, 0, z + TILE_SIZE],
-              [x, 0, z + TILE_SIZE],
-            ],
-            color,
-            isWorld: true,
-            isGround: true,
-          } as any)
+          triangles.push(
+            {
+              vertices: [
+                [x, 0, z],
+                [x + TILE_SIZE, 0, z],
+                [x + TILE_SIZE, 0, z + TILE_SIZE],
+              ],
+              color: groundColor,
+              isWorld: true,
+              isGround: true,
+            },
+            {
+              vertices: [
+                [x, 0, z],
+                [x + TILE_SIZE, 0, z + TILE_SIZE],
+                [x, 0, z + TILE_SIZE],
+              ],
+              color: groundColor,
+              isWorld: true,
+              isGround: true,
+            },
+          )
         }
       }
 
@@ -487,116 +631,19 @@ export function GameCanvas({ onJump }: { onJump?: () => void }) {
         triangles.push({ ...t, isWorld: false } as any)
       })
 
-      // Projection & Shading
-      type Vertex = { pos: Vec3 }
-      const clipPolygon = (vertices: Vertex[], minZ: number): Vertex[] => {
-        const result: Vertex[] = []
-        for (let i = 0; i < vertices.length; i++) {
-          const v1 = vertices[i]
-          const v2 = vertices[(i + 1) % vertices.length]
-          const d1 = v1.pos[2] - minZ
-          const d2 = v2.pos[2] - minZ
+      // Projection, shading, sort & render — delegado ao helper puro.
+      renderTriangles(target, triangles, width, height, worldAngle, FOCAL, transform, lightDir)
 
-          if (d1 >= 0) {
-            result.push(v1)
-          }
-          if (d1 * d2 < 0) {
-            const t = d1 / (d1 - d2)
-            const pos: Vec3 = [
-              v1.pos[0] + (v2.pos[0] - v1.pos[0]) * t,
-              v1.pos[1] + (v2.pos[1] - v1.pos[1]) * t,
-              minZ,
-            ]
-            result.push({ pos })
-          }
-        }
-        return result
+      // Supersampling: desenha o offscreen (2x) no canvas de display (1x) com suavização.
+      if (useAA) {
+        target.setTransform(1, 0, 0, 1, 0, 0)
+        ctx.setTransform(1, 0, 0, 1, 0, 0)
+        ctx.imageSmoothingEnabled = true
+        ctx.imageSmoothingQuality = 'high'
+        ctx.clearRect(0, 0, width, height)
+        ctx.drawImage(offscreen, 0, 0, width, height)
       }
 
-      const projected = triangles
-        .map((t: any) => {
-          const v0 = t.vertices[0],
-            v1 = t.vertices[1],
-            v2 = t.vertices[2]
-
-          let normal = normalize(cross(sub(v1, v0), sub(v2, v0)))
-          if (t.isWorld) {
-            const cA = Math.cos(-worldAngle),
-              sA = Math.sin(-worldAngle)
-            normal = [normal[0] * cA - normal[2] * sA, normal[1], normal[0] * sA + normal[2] * cA]
-          }
-
-          const tv0 = transform(v0, t.isWorld ?? true)
-          const tv1 = transform(v1, t.isWorld ?? true)
-          const tv2 = transform(v2, t.isWorld ?? true)
-
-          const poly: Vertex[] = [{ pos: tv0 }, { pos: tv1 }, { pos: tv2 }]
-
-          const clipped = clipPolygon(poly, 10)
-          if (clipped.length < 3) return null
-
-          const pts2d = clipped.map((v) => [
-            v.pos[0] * (FOCAL / v.pos[2]) + width / 2,
-            -v.pos[1] * (FOCAL / v.pos[2]) + height / 2,
-          ])
-
-          const zAvg = clipped.reduce((sum, v) => sum + v.pos[2], 0) / clipped.length
-
-          return {
-            pts: pts2d,
-            color: t.color,
-            zAvg,
-            normal,
-            isGround: t.isGround,
-            layer: t.layer,
-          }
-        })
-        .filter(Boolean) as any[]
-
-      projected.sort((a, b) => {
-        if (a.isGround && !b.isGround) return -1
-        if (!a.isGround && b.isGround) return 1
-
-        let za = a.zAvg
-        let zb = b.zAvg
-
-        // Visual Depth Correction for Character Parts
-        // Layers: 0 (Wheels), 1 (Deck), 2 (Body), 3 (Head)
-        // By adding an offset based on the layer, we ensure that smaller layers
-        // have larger zSort values, meaning they are drawn earlier (further back).
-        if (a.layer !== undefined) za += (3 - a.layer) * 25
-        if (b.layer !== undefined) zb += (3 - b.layer) * 25
-
-        return zb - za
-      })
-
-      // Render
-      ctx.lineJoin = 'miter'
-      for (const p of projected) {
-        const intensity = 0.35 + 0.65 * Math.max(0, dot(p.normal, lightDir))
-
-        const r = Math.floor(p.color[0] * intensity)
-        const g = Math.floor(p.color[1] * intensity)
-        const b = Math.floor(p.color[2] * intensity)
-
-        ctx.fillStyle = `rgb(${r},${g},${b})`
-        if (p.isGround) {
-          ctx.strokeStyle = `rgb(${r},${g},${b})`
-          ctx.lineWidth = 1
-        } else {
-          ctx.strokeStyle = `rgb(${Math.max(0, r - 15)},${Math.max(0, g - 15)},${Math.max(0, b - 15)})`
-          ctx.lineWidth = 1.5
-        }
-
-        ctx.beginPath()
-        ctx.moveTo(p.pts[0][0], p.pts[0][1])
-        for (let i = 1; i < p.pts.length; i++) {
-          ctx.lineTo(p.pts[i][0], p.pts[i][1])
-        }
-        ctx.closePath()
-        ctx.fill()
-        ctx.stroke()
-      }
       animationId = requestAnimationFrame(loop)
     }
 

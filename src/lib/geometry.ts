@@ -5,8 +5,6 @@ export type Vec2 = [number, number]
 export type Triangle = {
   vertices: [Vec3, Vec3, Vec3]
   color: Vec3
-  uvs?: [Vec2, Vec2, Vec2]
-  material?: string
   isWorld?: boolean
   isGround?: boolean
   layer?: number
@@ -38,7 +36,6 @@ export const createRamp = (
   center: Vec3,
   size: Vec3,
   color: Vec3,
-  material?: string,
   omitBottom = true,
 ): Triangle[] => {
   const [cx, cy, cz] = center
@@ -57,91 +54,16 @@ export const createRamp = (
   ]
 
   const tris: Triangle[] = [
-    {
-      vertices: [p[3], p[5], p[4]],
-      color,
-      material,
-      uvs: [
-        [1, 1],
-        [1, 0],
-        [0, 0],
-      ],
-    },
-    {
-      vertices: [p[3], p[4], p[2]],
-      color,
-      material,
-      uvs: [
-        [1, 1],
-        [0, 0],
-        [0, 1],
-      ],
-    }, // Back
-    {
-      vertices: [p[0], p[1], p[4]],
-      color,
-      material,
-      uvs: [
-        [0, 1],
-        [1, 1],
-        [1, 0],
-      ],
-    },
-    {
-      vertices: [p[0], p[4], p[5]],
-      color,
-      material,
-      uvs: [
-        [0, 1],
-        [1, 0],
-        [0, 0],
-      ],
-    }, // Slope
-    {
-      vertices: [p[0], p[5], p[3]],
-      color,
-      material,
-      uvs: [
-        [1, 1],
-        [0, 0],
-        [0, 1],
-      ],
-    }, // Left
-    {
-      vertices: [p[1], p[2], p[4]],
-      color,
-      material,
-      uvs: [
-        [0, 1],
-        [1, 1],
-        [1, 0],
-      ],
-    }, // Right
+    { vertices: [p[3], p[5], p[4]], color },
+    { vertices: [p[3], p[4], p[2]], color }, // Back
+    { vertices: [p[0], p[1], p[4]], color },
+    { vertices: [p[0], p[4], p[5]], color }, // Slope
+    { vertices: [p[0], p[5], p[3]], color }, // Left
+    { vertices: [p[1], p[2], p[4]], color }, // Right
   ]
 
   if (!omitBottom) {
-    tris.push(
-      {
-        vertices: [p[0], p[2], p[1]],
-        color,
-        material,
-        uvs: [
-          [0, 1],
-          [1, 0],
-          [1, 1],
-        ],
-      },
-      {
-        vertices: [p[0], p[3], p[2]],
-        color,
-        material,
-        uvs: [
-          [0, 1],
-          [0, 0],
-          [1, 0],
-        ],
-      },
-    )
+    tris.push({ vertices: [p[0], p[2], p[1]], color }, { vertices: [p[0], p[3], p[2]], color })
   }
 
   return tris
@@ -151,7 +73,6 @@ export const createBox = (
   center: Vec3,
   size: Vec3,
   color: Vec3,
-  material?: string,
   omitBottom = false,
 ): Triangle[] => {
   const [cx, cy, cz] = center
@@ -172,131 +93,20 @@ export const createBox = (
   ]
 
   const tris: Triangle[] = [
-    {
-      vertices: [p[0], p[1], p[2]],
-      color,
-      material,
-      uvs: [
-        [0, 1],
-        [1, 1],
-        [1, 0],
-      ],
-    },
-    {
-      vertices: [p[0], p[2], p[3]],
-      color,
-      material,
-      uvs: [
-        [0, 1],
-        [1, 0],
-        [0, 0],
-      ],
-    }, // Front
-    {
-      vertices: [p[5], p[4], p[7]],
-      color,
-      material,
-      uvs: [
-        [1, 1],
-        [0, 1],
-        [0, 0],
-      ],
-    },
-    {
-      vertices: [p[5], p[7], p[6]],
-      color,
-      material,
-      uvs: [
-        [1, 1],
-        [0, 0],
-        [1, 0],
-      ],
-    }, // Back
-    {
-      vertices: [p[3], p[2], p[6]],
-      color,
-      material,
-      uvs: [
-        [0, 1],
-        [1, 1],
-        [1, 0],
-      ],
-    },
-    {
-      vertices: [p[3], p[6], p[7]],
-      color,
-      material,
-      uvs: [
-        [0, 1],
-        [1, 0],
-        [0, 0],
-      ],
-    }, // Top
-    {
-      vertices: [p[1], p[5], p[6]],
-      color,
-      material,
-      uvs: [
-        [0, 1],
-        [1, 1],
-        [1, 0],
-      ],
-    },
-    {
-      vertices: [p[1], p[6], p[2]],
-      color,
-      material,
-      uvs: [
-        [0, 1],
-        [1, 0],
-        [0, 0],
-      ],
-    }, // Right
-    {
-      vertices: [p[4], p[0], p[3]],
-      color,
-      material,
-      uvs: [
-        [0, 1],
-        [1, 1],
-        [1, 0],
-      ],
-    },
-    {
-      vertices: [p[4], p[3], p[7]],
-      color,
-      material,
-      uvs: [
-        [0, 1],
-        [1, 0],
-        [0, 0],
-      ],
-    }, // Left
+    { vertices: [p[0], p[1], p[2]], color },
+    { vertices: [p[0], p[2], p[3]], color }, // Front
+    { vertices: [p[5], p[4], p[7]], color },
+    { vertices: [p[5], p[7], p[6]], color }, // Back
+    { vertices: [p[3], p[2], p[6]], color },
+    { vertices: [p[3], p[6], p[7]], color }, // Top
+    { vertices: [p[1], p[5], p[6]], color },
+    { vertices: [p[1], p[6], p[2]], color }, // Right
+    { vertices: [p[4], p[0], p[3]], color },
+    { vertices: [p[4], p[3], p[7]], color }, // Left
   ]
 
   if (!omitBottom) {
-    tris.push(
-      {
-        vertices: [p[4], p[5], p[1]],
-        color,
-        material,
-        uvs: [
-          [0, 0],
-          [1, 0],
-          [1, 1],
-        ],
-      },
-      {
-        vertices: [p[4], p[1], p[0]],
-        color,
-        material,
-        uvs: [
-          [0, 0],
-          [1, 1],
-          [0, 1],
-        ],
-      },
-    )
+    tris.push({ vertices: [p[4], p[5], p[1]], color }, { vertices: [p[4], p[1], p[0]], color })
   }
 
   return tris
