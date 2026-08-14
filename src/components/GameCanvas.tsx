@@ -193,8 +193,8 @@ export function GameCanvas({
     //   g_new = g / 1.75² ,  v_new = v / 1.75
     const JUMP_VEL = 24
     const GRAVITY = 0.735
-    const CAM_Y = 160
-    const CAM_Z = -350
+    let CAM_Y = 160
+    let CAM_Z = -350
     const PLAYER_Z = 150
     const TILT = 0.2
     const FOCAL = 500
@@ -571,6 +571,12 @@ export function GameCanvas({
       gradient.addColorStop(1, '#F97316')
       target.fillStyle = gradient
       target.fillRect(0, 0, width, height)
+
+      // Câmera reativa ao pulo: desce e se afasta ligeiramente quando o
+      // jogador está no ar, dando mais dramaticidade ao pulo. Como `transform`
+      // é uma closure, ela captura os valores atualizados a cada frame.
+      CAM_Y = 160 - playerY * 0.25
+      CAM_Z = -350 - playerY * 0.3
 
       // World-Fixed Sun (Infinite Distance)
       const pxSun = 0
