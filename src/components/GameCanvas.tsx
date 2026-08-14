@@ -131,144 +131,156 @@ function drawSkater(
   ctx.translate(w / 2, h * 0.86)
   ctx.rotate(flipRotation)
 
-  const shirt: [string, string] = ['#b91c1c', '#7f1d1d']
-  const pants: [string, string] = ['#1e3a8a', '#172554']
-  const shoe = '#0f0f0f'
-  const skin = '#e9c9a0'
+  const shirt = '#c0312b'
+  const shirtDark = '#7f1d1d'
+  const pantsDark = '#1e293b'
+  const shoe = '#111827'
+  const skin = '#e8b88f'
+  const skinDark = '#b5825a'
   const hair = '#1c1917'
-  const board = '#facc15'
-  const wheel = '#1c1917'
-  const metal = '#9ca3af'
+  const cap = '#0ea5e9'
+  const board = '#f5c518'
+  const boardDark = '#a16207'
+  const grip = '#1f2937'
+  const wheel = '#e5e7eb'
+  const truck = '#9ca3af'
 
-  const leg = (lx: number, bend: number, footX: number) => {
-    ctx.strokeStyle = pants[1]
-    ctx.lineWidth = 13
-    ctx.lineCap = 'round'
+  // --- Shape (skate) com grip, trucks e rodas ---
+  const drawBoard = (lift = 0) => {
+    ctx.save()
+    ctx.translate(0, -lift)
+    ctx.fillStyle = board
+    ctx.strokeStyle = boardDark
+    ctx.lineWidth = 2
     ctx.beginPath()
-    ctx.moveTo(lx, -10)
-    ctx.lineTo(lx + bend * 0.4, -34)
-    ctx.lineTo(footX, -58)
+    if (ctx.roundRect) ctx.roundRect(-34, -6, 68, 8, 4)
+    else ctx.rect(-34, -6, 68, 8)
+    ctx.fill()
     ctx.stroke()
+    // grip tape (faixa escura no topo do shape)
+    ctx.fillStyle = grip
+    ctx.beginPath()
+    if (ctx.roundRect) ctx.roundRect(-34, -6, 68, 3, 2)
+    else ctx.rect(-34, -6, 68, 3)
+    ctx.fill()
+    // trucks + rodas
+    ctx.fillStyle = truck
+    ctx.fillRect(-22, -1, 8, 3)
+    ctx.fillRect(14, -1, 8, 3)
+    ctx.fillStyle = wheel
+    for (const wx of [-22, 22]) {
+      ctx.beginPath()
+      ctx.arc(wx, 2, 4, 0, Math.PI * 2)
+      ctx.fill()
+    }
+    ctx.restore()
+  }
+
+  // --- Perna (calça) com joelho flexionado ---
+  const leg = (hipX: number, kneeX: number, footX: number, hipY = -58, footY = -8) => {
+    ctx.strokeStyle = pantsDark
+    ctx.lineWidth = 11
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.beginPath()
+    ctx.moveTo(hipX, hipY)
+    ctx.lineTo(kneeX, (hipY + footY) / 2)
+    ctx.lineTo(footX, footY)
+    ctx.stroke()
+    // sapato
     ctx.fillStyle = shoe
     ctx.beginPath()
-    ctx.ellipse(footX + 6, -58, 11, 5, 0, 0, Math.PI * 2)
+    ctx.ellipse(footX + 5, footY, 10, 5, 0, 0, Math.PI * 2)
     ctx.fill()
   }
 
-  if (pose === 'grind') {
-    leg(-12, -8, -20)
-    leg(16, 6, 26)
-  } else if (pose === 'lip') {
-    leg(-6, 0, -18)
-    leg(14, -4, 24)
-  } else if (pose === 'grab') {
-    leg(-6, -18, -14)
-    leg(10, -20, 16)
-  } else {
-    leg(-8, -4, -18)
-    leg(12, 4, 24)
+  // --- Braço (camisa) em dois segmentos + mão ---
+  const arm = (sx: number, sy: number, ex: number, ey: number, mx: number, my: number) => {
+    ctx.strokeStyle = shirtDark
+    ctx.lineWidth = 7
+    ctx.lineCap = 'round'
+    ctx.lineJoin = 'round'
+    ctx.beginPath()
+    ctx.moveTo(sx, sy)
+    ctx.lineTo(mx, my)
+    ctx.lineTo(ex, ey)
+    ctx.stroke()
+    ctx.fillStyle = skin
+    ctx.beginPath()
+    ctx.arc(ex, ey, 3.5, 0, Math.PI * 2)
+    ctx.fill()
   }
 
-  // Tronco (camisa)
-  ctx.fillStyle = shirt[0]
-  ctx.strokeStyle = shirt[1]
-  ctx.lineWidth = 3
+  // Pernas + shape por pose
+  if (pose === 'grind') {
+    leg(-10, -2, -22)
+    leg(10, 14, 24)
+    drawBoard(0)
+  } else if (pose === 'lip') {
+    leg(-8, -6, -16)
+    leg(10, 8, 20)
+    drawBoard(0)
+  } else if (pose === 'grab') {
+    leg(-9, -16, -16)
+    leg(9, 18, 18)
+    drawBoard(grabT * 8)
+  } else {
+    leg(-10, -6, -18)
+    leg(10, 8, 22)
+    drawBoard(0)
+  }
+
+  // --- Tronco (camisa) — leve cônico dos ombros ao quadril ---
+  ctx.fillStyle = shirt
+  ctx.strokeStyle = shirtDark
+  ctx.lineWidth = 2
   ctx.beginPath()
-  ctx.moveTo(-13, -12)
-  ctx.lineTo(13, -12)
-  ctx.lineTo(11, -52)
-  ctx.lineTo(-11, -52)
+  ctx.moveTo(-12, -58)
+  ctx.lineTo(12, -58)
+  ctx.lineTo(15, -92)
+  ctx.lineTo(-15, -92)
   ctx.closePath()
   ctx.fill()
   ctx.stroke()
 
-  // Braços
-  ctx.strokeStyle = shirt[1]
-  ctx.lineWidth = 9
-  ctx.lineCap = 'round'
+  // --- Braços por pose ---
+  const shoulderY = -88
   if (pose === 'grab') {
-    ctx.beginPath()
-    ctx.moveTo(-9, -46)
-    ctx.lineTo(-6, -30)
-    ctx.lineTo(2, -8)
-    ctx.stroke()
-    ctx.beginPath()
-    ctx.moveTo(9, -46)
-    ctx.lineTo(6, -30)
-    ctx.lineTo(2, -8)
-    ctx.stroke()
+    arm(-11, shoulderY, -2, -14, -6, -50) // mão ao shape
+    arm(11, shoulderY, 10, -60, 12, -74) // braço livre estendido
   } else if (pose === 'lip') {
-    ctx.beginPath()
-    ctx.moveTo(-9, -46)
-    ctx.lineTo(-16, -60)
-    ctx.lineTo(-20, -74)
-    ctx.stroke()
-    ctx.beginPath()
-    ctx.moveTo(9, -46)
-    ctx.lineTo(8, -28)
-    ctx.stroke()
+    arm(-11, shoulderY, -18, -120, -16, -104)
+    arm(11, shoulderY, 14, -76, 12, -82)
   } else if (pose === 'grind') {
-    ctx.beginPath()
-    ctx.moveTo(9, -46)
-    ctx.lineTo(4, -30)
-    ctx.lineTo(0, -10)
-    ctx.stroke()
-    ctx.beginPath()
-    ctx.moveTo(-9, -46)
-    ctx.lineTo(-22, -40)
-    ctx.stroke()
+    arm(11, shoulderY, 2, -16, 6, -50) // mão ao shape (equilíbrio)
+    arm(-11, shoulderY, -24, -70, -20, -58)
   } else {
-    ctx.beginPath()
-    ctx.moveTo(-9, -46)
-    ctx.lineTo(-16, -34)
-    ctx.lineTo(-22, -18)
-    ctx.stroke()
-    ctx.beginPath()
-    ctx.moveTo(9, -46)
-    ctx.lineTo(16, -34)
-    ctx.lineTo(20, -20)
-    ctx.stroke()
+    arm(-11, shoulderY, -22, -52, -18, -68)
+    arm(11, shoulderY, 22, -54, 18, -70)
   }
 
-  // Cabeça
+  // --- Cabeça ---
   ctx.fillStyle = skin
-  ctx.strokeStyle = '#b58a5e'
+  ctx.strokeStyle = skinDark
   ctx.lineWidth = 2
   ctx.beginPath()
-  ctx.arc(2, -64, 12, 0, Math.PI * 2)
+  ctx.arc(1, -104, 11, 0, Math.PI * 2)
   ctx.fill()
   ctx.stroke()
+  // boné
+  ctx.fillStyle = cap
+  ctx.beginPath()
+  ctx.arc(1, -106, 11, Math.PI, Math.PI * 2)
+  ctx.fill()
+  ctx.fillRect(1, -107, 14, 4) // aba do boné
+  // cabelo na nuca
   ctx.fillStyle = hair
+  ctx.fillRect(-10, -104, 5, 5)
+  // olho
+  ctx.fillStyle = '#111827'
   ctx.beginPath()
-  ctx.arc(2, -66, 12, Math.PI, Math.PI * 2)
+  ctx.arc(8, -103, 1.6, 0, Math.PI * 2)
   ctx.fill()
-  ctx.fillRect(-10, -68, 6, 6)
-
-  // Shape (skate) sob os pés, com rodas
-  ctx.save()
-  if (pose === 'grab') ctx.translate(0, -2 + grabT * 6)
-  ctx.fillStyle = board
-  ctx.strokeStyle = '#a16207'
-  ctx.lineWidth = 2
-  ctx.beginPath()
-  if (ctx.roundRect) {
-    ctx.roundRect(-30, -4, 60, 7, 3)
-  } else {
-    ctx.rect(-30, -4, 60, 7)
-  }
-  ctx.fill()
-  ctx.stroke()
-  ctx.fillStyle = wheel
-  ctx.beginPath()
-  ctx.arc(-20, 1, 4, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.beginPath()
-  ctx.arc(20, 1, 4, 0, Math.PI * 2)
-  ctx.fill()
-  ctx.fillStyle = metal
-  ctx.fillRect(-22, -2, 6, 3)
-  ctx.fillRect(16, -2, 6, 3)
-  ctx.restore()
 
   ctx.restore()
 }
@@ -280,9 +292,11 @@ function drawSkater(
 export function GameCanvas({
   antialiasing = true,
   onState,
+  onFps,
 }: {
   antialiasing?: boolean
   onState?: (s: GameState) => void
+  onFps?: (fps: number) => void
 }) {
   const canvasRef = useRef<HTMLCanvasElement>(null)
   const containerRef = useRef<HTMLDivElement>(null)
@@ -290,6 +304,8 @@ export function GameCanvas({
   antialiasingRef.current = antialiasing
   const onStateRef = useRef(onState)
   onStateRef.current = onState
+  const onFpsRef = useRef(onFps)
+  onFpsRef.current = onFps
 
   useEffect(() => {
     const canvas = canvasRef.current
@@ -364,16 +380,19 @@ export function GameCanvas({
       },
     ]
 
-    // --- Câmera fixa (ligeiramente elevada, de frente 3/4) ---
+    // --- Câmera fixa LATERAL (olha ao longo de +X) ---
+    // A mini-ramp tem suas transições em ±Z; ao olhar ao longo de X vemos o
+    // perfil em "U" de lado, com o skatista oscilando horizontalmente na tela.
     const FOCAL = 520
-    const CAM: Vec3 = [0, 170, -460]
+    const CAM: Vec3 = [-460, 170, 0]
     const CAM_PITCH = 0.16
     const lightDir = normalize([0.45, 0.85, 0.35])
 
     const transform = (v: Vec3): Vec3 => {
-      const dx = v[0] - CAM[0]
+      // Tela horizontal = Z (mundo), profundidade = X (mundo), vertical = Y.
+      const dx = v[2] - CAM[2]
       const dy = v[1] - CAM[1]
-      const dz = v[2] - CAM[2]
+      const dz = v[0] - CAM[0]
       const cy = Math.cos(CAM_PITCH),
         sy = Math.sin(CAM_PITCH)
       return [dx, dy * cy - dz * sy, dy * sy + dz * cy]
@@ -513,8 +532,21 @@ export function GameCanvas({
       grindT = 0
     }
 
+    // --- Loop de jogo limitado a 30 FPS (metade da velocidade original) ---
+    const TARGET_FPS = 30
+    const FRAME_MS = 1000 / TARGET_FPS
+    let lastFrame = performance.now()
+    let fpsFrames = 0
+    let fpsLastReport = performance.now()
+
     let animationId: number
-    const loop = () => {
+    const loop = (now: number) => {
+      animationId = requestAnimationFrame(loop)
+      const elapsed = now - lastFrame
+      if (elapsed < FRAME_MS) return
+      // mantém o restante para não acumular drift
+      lastFrame = now - (elapsed % FRAME_MS)
+
       // --- Input lateral (A/D ou joystick analógico) ---
       const analogMag = Math.abs(inputState.analogX)
       const usingAnalog = analogMag > 0.08
@@ -646,8 +678,8 @@ export function GameCanvas({
       target.fillStyle = gradient
       target.fillRect(0, 0, width, height)
 
-      // Sol 3D fixo no horizonte — mantido.
-      const sunPos: Vec3 = [0, 0, 15000]
+      // Sol 3D fixo no horizonte (à frente da câmera lateral, +X) — mantido.
+      const sunPos: Vec3 = [15000, 0, 0]
       const tSun = transform(sunPos)
       if (tSun[2] > 10) {
         const sx = tSun[0] * (FOCAL / tSun[2]) + width / 2
@@ -721,7 +753,14 @@ export function GameCanvas({
         ctx.drawImage(offscreen, 0, 0, width, height)
       }
 
-      animationId = requestAnimationFrame(loop)
+      // --- Contador de FPS ---
+      fpsFrames++
+      if (now - fpsLastReport >= 500) {
+        const fps = Math.round((fpsFrames * 1000) / (now - fpsLastReport))
+        onFpsRef.current?.(fps)
+        fpsFrames = 0
+        fpsLastReport = now
+      }
     }
 
     pushState()

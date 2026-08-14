@@ -11,6 +11,7 @@ export default function Index() {
     lastTrick: null,
     counts: {},
   })
+  const [fps, setFps] = useState(0)
 
   useEffect(() => {
     const cleanup = initKeyboardControls()
@@ -24,7 +25,7 @@ export default function Index() {
       className="relative w-full overflow-hidden font-mono select-none"
       style={{ height: '100dvh' }}
     >
-      <GameCanvas antialiasing={antialiasing} onState={setGameState} />
+      <GameCanvas antialiasing={antialiasing} onState={setGameState} onFps={setFps} />
 
       {/* HUD overlay */}
       <div className="absolute top-0 left-0 right-0 p-4 sm:p-6 z-10 pointer-events-none flex flex-col sm:flex-row justify-between items-start gap-4">
@@ -116,17 +117,26 @@ export default function Index() {
           </p>
         </div>
 
-        <div className="bg-black/40 backdrop-blur-sm border border-white/10 p-4 rounded text-white/90 text-sm">
-          <p className="mb-2 font-bold text-white/80">OPÇÕES GRÁFICAS</p>
-          <label className="flex items-center gap-2 cursor-pointer select-none">
-            <input
-              type="checkbox"
-              checked={antialiasing}
-              onChange={(e) => setAntialiasing(e.target.checked)}
-              className="h-4 w-4 accent-orange-500 cursor-pointer"
-            />
-            <span>Antialiasing (suavizar bordas)</span>
-          </label>
+        <div className="flex items-stretch gap-3">
+          <div className="bg-black/40 backdrop-blur-sm border border-white/10 p-4 rounded text-white/90 text-sm">
+            <p className="mb-2 font-bold text-white/80">OPÇÕES GRÁFICAS</p>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={antialiasing}
+                onChange={(e) => setAntialiasing(e.target.checked)}
+                className="h-4 w-4 accent-orange-500 cursor-pointer"
+              />
+              <span>Antialiasing (suavizar bordas)</span>
+            </label>
+          </div>
+
+          <div className="bg-black/40 backdrop-blur-sm border border-white/10 p-4 rounded text-white/90 text-sm flex flex-col justify-center min-w-[88px]">
+            <p className="font-bold text-white/80">FPS</p>
+            <p className="text-2xl font-black tabular-nums leading-none mt-1 text-emerald-300">
+              {fps}
+            </p>
+          </div>
         </div>
       </div>
 
