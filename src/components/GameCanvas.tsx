@@ -118,18 +118,31 @@ const renderTriangles = (
 
 type Pose = 'idle' | 'flip' | 'grab' | 'grind' | 'lip'
 
-function drawSkater(
-  ctx: CanvasRenderingContext2D,
-  pose: Pose,
-  flipRotation: number,
-  grabT: number,
-) {
+export interface SkaterMotionState {
+  pose: Pose
+  flipRotation: number
+  grabT: number
+  crouch: number // 0 = ereto/estendido, 1 = agachado em pumping/aterrissagem
+  surfaceAngle: number // inclinação da rampa em radianos (-PI/2 .. +PI/2)
+  balanceArm: number // oscilação dinâmica dos braços para equilíbrio (-1 .. 1)
+  isAir: boolean
+  isLanding: boolean
+}
+
+function drawSkater(ctx: CanvasRenderingContext2D, motion: SkaterMotionState) {
+  const { pose, flipRotation, grabT, crouch, surfaceAngle, balanceArm } = motion
+
   const w = ctx.canvas.width
   const h = ctx.canvas.height
   ctx.clearRect(0, 0, w, h)
   ctx.save()
+
+  // Ponto de base do contato do skate com o chão
   ctx.translate(w / 2, h * 0.86)
-  ctx.rotate(flipRotation)
+
+  // Rotação: no ar manobras como flip giram 360+; na rampa o skatista inclina acompanhando a superfície
+  const totalRotation = flipRotation + surfaceAngle
+  ctx.rotate(totalRotation)
 
   const shirt = '#c0312b'
   const shirtDark = '#7f1d1d'
@@ -176,15 +189,22 @@ function drawSkater(
     ctx.restore()
   }
 
-  // --- Perna (calça) com joelho flexionado ---
-  const leg = (hipX: number, kneeX: number, footX: number, hipY = -58, footY = -8) => {
+  // --- Perna (calça) com articulação e sapato ---
+  const leg = (
+    hipX: number,
+    kneeX: number,
+    footX: number,
+    hipY: number,
+    kneeY: number,
+    footY = -8,
+  ) => {
     ctx.strokeStyle = pantsDark
     ctx.lineWidth = 11
     ctx.lineCap = 'round'
     ctx.lineJoin = 'round'
     ctx.beginPath()
     ctx.moveTo(hipX, hipY)
-    ctx.lineTo(kneeX, (hipY + footY) / 2)
+    ctx.lineTo(kneeX, kneeY)
     ctx.lineTo(footX, footY)
     ctx.stroke()
     // sapato
@@ -211,52 +231,80 @@ function drawSkater(
     ctx.fill()
   }
 
-  // Pernas + shape por pose
+  // Alturas dinâmicas do corpo de acordo com crouch (0 = estendido, 1 = muito agachado)
+  // crouch = 0 => quadril em -60, ombros em -94, cabeça em -106
+  // crouch = 1 => quadril em -40, ombros em -70, cabeça em -82
+  const crouchOffset = crouch * 20
+  const hipY = -60 + crouchOffset
+  const kneeY = -28 + crouchOffset * 0.75
+  const shoulderY = -94 + crouchOffset
+  const headY = -106 + crouchOffset
+
+  // Pernas + shape por pose / movimentação
   if (pose === 'grind') {
-    leg(-10, -2, -22)
-    leg(10, 14, 24)
+    leg(-10, -2, -22, -54, -28)
+    leg(10, 14, 24, -54, -28)
     drawBoard(0)
   } else if (pose === 'lip') {
-    leg(-8, -6, -16)
-    leg(10, 8, 20)
+    leg(-8, -6, -16, -56, -30)
+    leg(10, 8, 20, -56, -30)
     drawBoard(0)
   } else if (pose === 'grab') {
-    leg(-9, -16, -16)
-    leg(9, 18, 18)
+    leg(-9, -16, -16, -42, -24)
+    leg(9, 18, 18, -42, -24)
     drawBoard(grabT * 8)
   } else {
-    leg(-10, -6, -18)
-    leg(10, 8, 22)
+    // Na rampa (pumping/flat/aterrissagem/idle):
+    // Joelhos flexionam e abrem proporcionalmente ao crouch
+    const kneeBend = crouch * 5
+    leg(-10, -10 - kneeBend, -20, hipY, kneeY)
+    leg(10, 10 + kneeBend, 22, hipY, kneeY)
     drawBoard(0)
   }
 
-  // --- Tronco (camisa) — leve cônico dos ombros ao quadril ---
+  // --- Tronco (camisa) ---
   ctx.fillStyle = shirt
   ctx.strokeStyle = shirtDark
   ctx.lineWidth = 2
   ctx.beginPath()
-  ctx.moveTo(-12, -58)
-  ctx.lineTo(12, -58)
-  ctx.lineTo(15, -92)
-  ctx.lineTo(-15, -92)
+  ctx.moveTo(-12, hipY)
+  ctx.lineTo(12, hipY)
+  ctx.lineTo(15, shoulderY - 4)
+  ctx.lineTo(-15, shoulderY - 4)
   ctx.closePath()
   ctx.fill()
   ctx.stroke()
 
-  // --- Braços por pose ---
-  const shoulderY = -88
+  // --- Braços (equilíbrio reativo na rampa e poses) ---
   if (pose === 'grab') {
-    arm(-11, shoulderY, -2, -14, -6, -50) // mão ao shape
-    arm(11, shoulderY, 10, -60, 12, -74) // braço livre estendido
+    arm(-11, shoulderY, -2, -14, -6, -50 + crouchOffset * 0.5) // mão ao shape
+    arm(11, shoulderY, 10, -60 + crouchOffset, 12, -74 + crouchOffset) // braço livre
   } else if (pose === 'lip') {
-    arm(-11, shoulderY, -18, -120, -16, -104)
-    arm(11, shoulderY, 14, -76, 12, -82)
+    arm(-11, shoulderY, -18, -120 + crouchOffset, -16, -104 + crouchOffset)
+    arm(11, shoulderY, 14, -76 + crouchOffset, 12, -82 + crouchOffset)
   } else if (pose === 'grind') {
-    arm(11, shoulderY, 2, -16, 6, -50) // mão ao shape (equilíbrio)
+    arm(11, shoulderY, 2, -16, 6, -50) // mão para baixo equilíbrio
     arm(-11, shoulderY, -24, -70, -20, -58)
   } else {
-    arm(-11, shoulderY, -22, -52, -18, -68)
-    arm(11, shoulderY, 22, -54, 18, -70)
+    // Equilíbrio dinâmico dos braços durante o trajeto na rampa:
+    // Na subida e descida, os braços se abrem para contrabalançar;
+    // Ao agachar, os braços se projetam para manter o centro de gravidade
+    const armWave = balanceArm * 12
+    const crouchArmOut = crouch * 10
+
+    // Braço esquerdo (trás)
+    const leftArmEndX = -24 - crouchArmOut - armWave * 0.5
+    const leftArmEndY = shoulderY + 34 - armWave
+    const leftArmMidX = -18 - crouchArmOut * 0.7
+    const leftArmMidY = shoulderY + 18 - armWave * 0.4
+    arm(-11, shoulderY, leftArmEndX, leftArmEndY, leftArmMidX, leftArmMidY)
+
+    // Braço direito (frente)
+    const rightArmEndX = 24 + crouchArmOut + armWave * 0.5
+    const rightArmEndY = shoulderY + 32 + armWave
+    const rightArmMidX = 18 + crouchArmOut * 0.7
+    const rightArmMidY = shoulderY + 16 + armWave * 0.4
+    arm(11, shoulderY, rightArmEndX, rightArmEndY, rightArmMidX, rightArmMidY)
   }
 
   // --- Cabeça ---
@@ -264,22 +312,22 @@ function drawSkater(
   ctx.strokeStyle = skinDark
   ctx.lineWidth = 2
   ctx.beginPath()
-  ctx.arc(1, -104, 11, 0, Math.PI * 2)
+  ctx.arc(1, headY, 11, 0, Math.PI * 2)
   ctx.fill()
   ctx.stroke()
   // boné
   ctx.fillStyle = cap
   ctx.beginPath()
-  ctx.arc(1, -106, 11, Math.PI, Math.PI * 2)
+  ctx.arc(1, headY - 2, 11, Math.PI, Math.PI * 2)
   ctx.fill()
-  ctx.fillRect(1, -107, 14, 4) // aba do boné
+  ctx.fillRect(1, headY - 3, 14, 4) // aba do boné
   // cabelo na nuca
   ctx.fillStyle = hair
-  ctx.fillRect(-10, -104, 5, 5)
+  ctx.fillRect(-10, headY, 5, 5)
   // olho
   ctx.fillStyle = '#111827'
   ctx.beginPath()
-  ctx.arc(8, -103, 1.6, 0, Math.PI * 2)
+  ctx.arc(8, headY + 1, 1.6, 0, Math.PI * 2)
   ctx.fill()
 
   ctx.restore()
@@ -399,20 +447,28 @@ export function GameCanvas({
     }
 
     /**
-     * Posição (y,z) do skatista na superfície da rampa dado um coordenada
-     * longitudinal p em [-HALF_LEN, HALF_LEN] (0 = centro do flat, ±HALF_LEN =
-     * copings). y = altura, z = profundidade.
+     * Posição (y,z) e inclinação (slope angle) do skatista na rampa
+     * dado coordenada longitudinal p em [-HALF_LEN, HALF_LEN].
+     * angle: inclinação tangencial em radianos na vista de perfil.
+     * Na vista de perfil olhada em +X:
+     * - Flat: angle = 0
+     * - Subindo em +Z (theta > 0): a superfície se inclina para cima com ângulo positivo/negativo dependendo do sentido
      */
-    const rampSurface = (p: number): { y: number; z: number } => {
+    const rampSurface = (
+      p: number,
+    ): { y: number; z: number; slope: number; isTransition: boolean } => {
       const ap = Math.abs(p)
       if (ap <= HALF_FLAT) {
-        return { y: 0, z: p }
+        return { y: 0, z: p, slope: 0, isTransition: false }
       }
-      const d = ap - HALF_FLAT // distância ao longo do arco desde a borda do flat
+      const d = ap - HALF_FLAT
       const theta = (d / ARC_LEN) * (Math.PI / 2) // 0..PI/2
       const y = RAMP.radius * (1 - Math.cos(theta))
       const z = Math.sign(p) * (HALF_FLAT + RAMP.radius * Math.sin(theta))
-      return { y, z }
+      // Tangente da superfície: dy/dz
+      // Como p > 0 está em +Z, a inclinação tangencial é Math.sign(p) * theta
+      const slope = Math.sign(p) * theta
+      return { y, z, slope, isTransition: true }
     }
 
     // --- Estado do jogo ---
@@ -503,6 +559,15 @@ export function GameCanvas({
     let grinding = false
     let grindT = 0
 
+    // Animação de aterrissagem (agachamento elástico ao tocar na rampa)
+    let landingTimer = 0
+    const LANDING_DURATION = 12 // frames de absorção de impacto
+
+    // Pumping dinâmico
+    let currentCrouch = 0.2
+    let currentAngle = 0
+    let balanceOscillation = 0
+
     const startAir = (side: 1 | -1) => {
       air.active = true
       air.x = playerX
@@ -530,6 +595,7 @@ export function GameCanvas({
       vp = 4.2
       grinding = false
       grindT = 0
+      landingTimer = LANDING_DURATION // inicia animação de agachamento de aterrissagem
     }
 
     // --- Loop de jogo limitado a 30 FPS (metade da velocidade original) ---
@@ -651,18 +717,93 @@ export function GameCanvas({
         }
       }
 
-      // --- Pose atual para o sprite ---
+      // --- Pose e cinemática do skatista na rampa ---
       let pose: Pose = 'idle'
       let flipRot = 0
       let grabT = 0
+      let targetCrouch = 0.25
+      let targetAngle = 0
+
+      // Oscilação suave dos braços para equilíbrio
+      balanceOscillation += 0.15
+      const balanceArmVal = Math.sin(balanceOscillation) * 0.4
+
       if (air.active) {
         pose = air.pose
         flipRot = air.flipRotation
         grabT = air.grabT
+
+        // No ar: se estiver fazendo manobra, o corpo responde.
+        // No topo da parábola estende levemente o corpo (crouch menor)
+        if (pose === 'grab') {
+          targetCrouch = 0.8
+        } else if (pose === 'flip') {
+          targetCrouch = 0.5
+        } else {
+          // Vôo normal: pernas semi-flexionadas no ar, estendendo levemente no ápice
+          targetCrouch = air.vy > 0 ? 0.35 : 0.2
+        }
+        targetAngle = 0
       } else if (grinding) {
         pose = 'grind'
+        targetCrouch = 0.55
+        targetAngle = (p > 0 ? 1 : -1) * 0.2
+      } else {
+        // Skatista na rampa:
+        // PUMPING real:
+        // - Subindo a transição (indo em direção ao coping, velocidade apontando para cima):
+        //   skatista agacha (comprime o corpo para bombear velocidade na transição).
+        // - Descendo a transição (voltando para o flat):
+        //   skatista estende o corpo (descomprime as pernas para gerar velocidade na gravidade).
+        // - No flat central:
+        //   pose atlética intermediária com leve flexão de prontidão.
+        const surf = rampSurface(p)
+        const isAscending = (pDir > 0 && p > 0) || (pDir < 0 && p < 0)
+        const isDescending = (pDir > 0 && p < 0) || (pDir < 0 && p > 0)
+        const transitionFraction = Math.max(0, (Math.abs(p) - HALF_FLAT) / ARC_LEN) // 0..1
+
+        if (landingTimer > 0) {
+          // Aterrissagem com amortecimento elástico
+          const progress = 1 - landingTimer / LANDING_DURATION // 0..1
+          // Agacha forte no início da aterrissagem (impacto) e sobe gradualmente
+          targetCrouch = 0.9 * Math.sin((1 - progress) * Math.PI * 0.5) + 0.3
+          landingTimer--
+        } else if (surf.isTransition) {
+          if (isAscending) {
+            // Agachando ao subir a transição ("pump in" na subida)
+            targetCrouch = 0.4 + transitionFraction * 0.55 // até ~0.95 próximo ao coping
+          } else if (isDescending) {
+            // Estendendo ao descer da transição ("pump out" descendo pro flat)
+            targetCrouch = Math.max(0.05, 0.5 - transitionFraction * 0.4) // até ~0.10
+          } else {
+            targetCrouch = 0.3
+          }
+        } else {
+          // Flat central: leve balanceamento atlético
+          targetCrouch = 0.22 + Math.sin(p * 0.05) * 0.06
+        }
+
+        // Inclinação do corpo acompanhando a rampa:
+        // A câmera lateral vê o perfil da rampa em Z.
+        // A inclinação da rampa na posição p é `surf.slope`.
+        // O skatista inclina os pés e corpo alinhado com a superfície!
+        targetAngle = surf.slope
       }
-      drawSkater(spriteCtx, pose, flipRot, grabT)
+
+      // Interpolação suave de pose/crouch e inclinação
+      currentCrouch += (targetCrouch - currentCrouch) * 0.3
+      currentAngle += (targetAngle - currentAngle) * 0.35
+
+      drawSkater(spriteCtx, {
+        pose,
+        flipRotation: flipRot,
+        grabT,
+        crouch: currentCrouch,
+        surfaceAngle: currentAngle,
+        balanceArm: balanceArmVal,
+        isAir: air.active,
+        isLanding: landingTimer > 0,
+      })
 
       // --- Render ---
       const useAA = antialiasingRef.current

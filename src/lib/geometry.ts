@@ -128,19 +128,80 @@ export interface MiniRampParams {
 }
 
 /**
- * Cor cinza concreto sólido.
+ * Coping metálico no topo da transição.
  */
-const CONCRETE: Vec3 = [150, 150, 150]
-const CONCRETE_DECK: Vec3 = [130, 130, 130]
-const COPIING: Vec3 = [200, 200, 210]
+const COPING: Vec3 = [210, 215, 225]
+
+/**
+ * Função hash determinística pseudo-aleatória por posição/índice (0..1).
+ * Não muda entre frames, evitando que as cores pisquem.
+ */
+const pseudoRandom = (seedA: number, seedB: number, seedC: number = 0): number => {
+  const n = Math.sin(seedA * 12.9898 + seedB * 78.233 + seedC * 37.719) * 43758.5453
+  return n - Math.floor(n)
+}
+
+/**
+ * Gera um tom de madeira natural (compensado/tábuas de skate park) com base
+ * na posição espacial do triângulo / tábua.
+ * Cria contraste sutil entre ripas e veios de madeira.
+ */
+const getWoodSurfaceColor = (x: number, y: number, z: number, plankIndex: number): Vec3 => {
+  // Hash primário da tábua/placa
+  const hPlank = pseudoRandom(plankIndex * 17.13, 42.5)
+  // Variação micro por posição (simulando nó ou veio de madeira)
+  const hGrain = pseudoRandom(x * 0.05, z * 0.05, y * 0.08)
+
+  // Cor base de madeira de rampa (skatelite / compensado naval):
+  // R ~ 180..220, G ~ 125..160, B ~ 70..105 (marrom dourado acolhedor)
+  const plankVariation = (hPlank - 0.5) * 36
+  const grainVariation = (hGrain - 0.5) * 16
+
+  const baseR = 196 + plankVariation + grainVariation
+  const baseG = 138 + plankVariation * 0.8 + grainVariation * 0.7
+  const baseB = 84 + plankVariation * 0.55 + grainVariation * 0.45
+
+  return [
+    Math.max(120, Math.min(235, Math.round(baseR))),
+    Math.max(80, Math.min(180, Math.round(baseG))),
+    Math.max(45, Math.min(125, Math.round(baseB))),
+  ]
+}
+
+/**
+ * Cor de madeira para as laterais estruturais (madeira compensada / vigas mais escuras).
+ */
+const getWoodSideColor = (x: number, y: number, z: number, index: number): Vec3 => {
+  const h = pseudoRandom(index * 23.41, x * 0.02, z * 0.02)
+  const varN = (h - 0.5) * 24
+  return [
+    Math.max(90, Math.min(170, Math.round(135 + varN))),
+    Math.max(60, Math.min(130, Math.round(92 + varN * 0.8))),
+    Math.max(35, Math.min(90, Math.round(58 + varN * 0.6))),
+  ]
+}
+
+/**
+ * Cor de madeira para o deck da plataforma (tábuas de deck tratadas).
+ */
+const getWoodDeckColor = (x: number, z: number, plankIndex: number): Vec3 => {
+  const h = pseudoRandom(plankIndex * 31.7, x * 0.01, z * 0.03)
+  const varN = (h - 0.5) * 28
+  return [
+    Math.max(110, Math.min(190, Math.round(155 + varN))),
+    Math.max(75, Math.min(145, Math.round(108 + varN * 0.8))),
+    Math.max(45, Math.min(100, Math.round(68 + varN * 0.6))),
+  ]
+}
 
 /**
  * Cria a geometria de uma mini-ramp: duas transições (quarter-pipes nas
  * laterais) ligadas por um flat central, com coping metálico no topo de cada
- * transição e decks (plataformas) atrás. Tudo com triângulos, cores sólidas.
+ * transição e decks (plataformas) atrás.
  *
- * A rampa é centrada na origem e fica fixa no mundo (eixos: X = largura,
- * Z = profundidade, Y = altura).
+ * Superfície e decks possuem textura visual de tábuas de madeira com
+ * variação determinística de tons por ripa/face no estilo low-poly/bruto.
+ * O chão de concreto ao redor permanece inalterado.
  */
 export const createMiniRamp = (p: MiniRampParams): Triangle[] => {
   const { width, depth, transitionDepth, height, radius, segments } = p
@@ -149,92 +210,156 @@ export const createMiniRamp = (p: MiniRampParams): Triangle[] => {
 
   const tris: Triangle[] = []
 
-  // ---- Plataforma central (flat) ----
-  tris.push({
-    vertices: [
-      [-halfW, 0, -flatDepth / 2],
-      [halfW, 0, -flatDepth / 2],
-      [halfW, 0, flatDepth / 2],
-    ],
-    color: CONCRETE,
-  })
-  tris.push({
-    vertices: [
-      [-halfW, 0, -flatDepth / 2],
-      [halfW, 0, flatDepth / 2],
-      [-halfW, 0, flatDepth / 2],
-    ],
-    color: CONCRETE,
-  })
+  // Subdivisão em ripas no eixo X para dar aspecto de tábuas de madeira longitudinais
+  const xPlanks = 14
+  const dx = width / xPlanks
+
+  // ---- Plataforma central (flat) em tábuas de madeira ----
+  const flatZSegments = 4
+  const dzFlat = flatDepth / flatZSegments
+  for (let xi = 0; xi < xPlanks; xi++) {
+    const x0 = -halfW + xi * dx
+    const x1 = x0 + dx
+    for (let zi = 0; zi < flatZSegments; zi++) {
+      const z0 = -flatDepth / 2 + zi * dzFlat
+      const z1 = z0 + dzFlat
+      const plankId = xi * 10 + zi + 1
+      const col1 = getWoodSurfaceColor(x0, 0, z0, plankId)
+      const col2 = getWoodSurfaceColor(x1, 0, z1, plankId + 0.5)
+      tris.push({
+        vertices: [
+          [x0, 0, z0],
+          [x1, 0, z0],
+          [x1, 0, z1],
+        ],
+        color: col1,
+      })
+      tris.push({
+        vertices: [
+          [x0, 0, z0],
+          [x1, 0, z1],
+          [x0, 0, z1],
+        ],
+        color: col2,
+      })
+    }
+  }
 
   // ---- Transições (quarter-pipes) nas laterais +Z e -Z ----
-  // Função para gerar uma transição curva virada "para dentro" (flat).
   const addTransition = (side: 1 | -1) => {
-    // side=+1: transição em +Z, curva vai do flat (z=flatDepth/2, y=0) até o
-    // topo (z=flatDepth/2+transitionDepth, y=height).
     const flatZ = side * (flatDepth / 2)
-    // Centro da curva (centro do círculo da transição) está em y=height,
-    // z=flatZ (raio vertical até o ponto base). Verifica coerência.
     const centerZ = flatZ
     const centerY = height
 
     const segs = Math.max(2, segments)
-    const strip: { pos: Vec3 }[] = []
+    // Coordenadas (y, z) dos anéis da curva
+    const curve: { y: number; z: number }[] = []
     for (let i = 0; i <= segs; i++) {
       const ang = (i / segs) * (Math.PI / 2)
-      // ang=0: ponto base (flat), ang=PI/2: topo da transição.
       const y = centerY - radius * Math.cos(ang)
       const z = centerZ + side * radius * Math.sin(ang)
-      strip.push({ pos: [-halfW, y, z] })
+      curve.push({ y, z })
     }
 
-    // Faixas longitudinais (x) por dois pontos consecutivos da curva = quad
-    // dividido em 2 triângulos. Fazemos a largura em um único quad (sem
-    // subdivisão em X) — a luz destaca as faixas em Z.
-    for (let i = 0; i < strip.length - 1; i++) {
-      const a = strip[i].pos
-      const b = strip[i + 1].pos
-      const aR: Vec3 = [a[0] + width, a[1], a[2]]
-      const bR: Vec3 = [b[0] + width, b[1], b[2]]
-      tris.push({ vertices: [a, aR, bR], color: CONCRETE })
-      tris.push({ vertices: [a, bR, b], color: CONCRETE })
+    // Superfície curva em tábuas (dividida em X e Z):
+    // Cada tábua tem sutil variação de tom, criando veios e juntas típicas de rampa de skate
+    for (let xi = 0; xi < xPlanks; xi++) {
+      const x0 = -halfW + xi * dx
+      const x1 = x0 + dx
+      for (let i = 0; i < curve.length - 1; i++) {
+        const cA = curve[i]
+        const cB = curve[i + 1]
+        const p0: Vec3 = [x0, cA.y, cA.z]
+        const p1: Vec3 = [x1, cA.y, cA.z]
+        const p2: Vec3 = [x1, cB.y, cB.z]
+        const p3: Vec3 = [x0, cB.y, cB.z]
+
+        const plankId = (side > 0 ? 100 : 200) + xi * 20 + i
+        const col1 = getWoodSurfaceColor(x0, cA.y, cA.z, plankId)
+        const col2 = getWoodSurfaceColor(x1, cB.y, cB.z, plankId + 0.5)
+
+        tris.push({ vertices: [p0, p1, p2], color: col1 })
+        tris.push({ vertices: [p0, p2, p3], color: col2 })
+      }
     }
 
-    // Verticais nas extremidades em X (fecham as laterais da transição).
-    for (let i = 0; i < strip.length - 1; i++) {
-      const a = strip[i].pos
-      const b = strip[i + 1].pos
+    // Verticais nas extremidades em X (laterais estruturais de madeira compensada).
+    for (let i = 0; i < curve.length - 1; i++) {
+      const cA = curve[i]
+      const cB = curve[i + 1]
+      const colSide1 = getWoodSideColor(-halfW, cA.y, cA.z, (side > 0 ? 500 : 600) + i)
+      const colSide2 = getWoodSideColor(halfW, cA.y, cA.z, (side > 0 ? 700 : 800) + i)
+
       // Lateral -X
-      tris.push({ vertices: [[a[0], 0, a[2]], a, b], color: CONCRETE_DECK })
-      tris.push({ vertices: [[a[0], 0, a[2]], b, [b[0], 0, b[2]]], color: CONCRETE_DECK })
+      tris.push({
+        vertices: [
+          [-halfW, 0, cA.z],
+          [-halfW, cA.y, cA.z],
+          [-halfW, cB.y, cB.z],
+        ],
+        color: colSide1,
+      })
+      tris.push({
+        vertices: [
+          [-halfW, 0, cA.z],
+          [-halfW, cB.y, cB.z],
+          [-halfW, 0, cB.z],
+        ],
+        color: colSide1,
+      })
+
       // Lateral +X
-      const aR: Vec3 = [a[0] + width, a[1], a[2]]
-      const bR: Vec3 = [b[0] + width, b[1], b[2]]
-      tris.push({ vertices: [[aR[0], 0, aR[2]], bR, aR], color: CONCRETE_DECK })
-      tris.push({ vertices: [[aR[0], 0, aR[2]], [bR[0], 0, bR[2]], bR], color: CONCRETE_DECK })
+      tris.push({
+        vertices: [
+          [halfW, 0, cA.z],
+          [halfW, cB.y, cB.z],
+          [halfW, cA.y, cA.z],
+        ],
+        color: colSide2,
+      })
+      tris.push({
+        vertices: [
+          [halfW, 0, cA.z],
+          [halfW, 0, cB.z],
+          [halfW, cB.y, cB.z],
+        ],
+        color: colSide2,
+      })
     }
 
-    // ---- Deck (plataforma atrás da transição) ----
+    // ---- Deck (plataforma de madeira atrás da transição) ----
     const deckZ = flatZ + side * transitionDepth
     const deckBackZ = flatZ + side * (transitionDepth + 40)
-    tris.push({
-      vertices: [
-        [-halfW, height, deckZ],
-        [halfW, height, deckZ],
-        [halfW, height, deckBackZ],
-      ],
-      color: CONCRETE_DECK,
-    })
-    tris.push({
-      vertices: [
-        [-halfW, height, deckZ],
-        [halfW, height, deckBackZ],
-        [-halfW, height, deckBackZ],
-      ],
-      color: CONCRETE_DECK,
-    })
+    const deckSegs = 3
+    const dzDeck = (deckBackZ - deckZ) / deckSegs
+    for (let xi = 0; xi < xPlanks; xi++) {
+      const x0 = -halfW + xi * dx
+      const x1 = x0 + dx
+      for (let di = 0; di < deckSegs; di++) {
+        const z0 = deckZ + di * dzDeck
+        const z1 = z0 + dzDeck
+        const pId = (side > 0 ? 300 : 400) + xi * 10 + di
+        const colDeck = getWoodDeckColor((x0 + x1) / 2, (z0 + z1) / 2, pId)
+        tris.push({
+          vertices: [
+            [x0, height, z0],
+            [x1, height, z0],
+            [x1, height, z1],
+          ],
+          color: colDeck,
+        })
+        tris.push({
+          vertices: [
+            [x0, height, z0],
+            [x1, height, z1],
+            [x0, height, z1],
+          ],
+          color: colDeck,
+        })
+      }
+    }
 
-    // ---- Coping (cilindro fino no topo da transição, em toda a largura) ----
+    // ---- Coping (cilindro metálico no topo da transição) ----
     const copingY = height
     const copingZ = deckZ
     const copingR = 2.5
@@ -252,7 +377,7 @@ export const createMiniRamp = (p: MiniRampParams): Triangle[] => {
           [halfW, y1, z1],
           [halfW, y2, z2],
         ],
-        color: COPIING,
+        color: COPING,
       })
       tris.push({
         vertices: [
@@ -260,7 +385,7 @@ export const createMiniRamp = (p: MiniRampParams): Triangle[] => {
           [halfW, y2, z2],
           [-halfW, y2, z2],
         ],
-        color: COPIING,
+        color: COPING,
       })
     }
   }
