@@ -449,10 +449,35 @@ export function GameCanvas({
     /**
      * Posição (y,z) e inclinação (slope angle) do skatista na rampa
      * dado coordenada longitudinal p em [-HALF_LEN, HALF_LEN].
-     * angle: inclinação tangencial em radianos na vista de perfil.
-     * Na vista de perfil olhada em +X:
-     * - Flat: angle = 0
-     * - Subindo em +Z (theta > 0): a superfície se inclina para cima com ângulo positivo/negativo dependendo do sentido
+     * slope: inclinação em radianos na rotação 2D do sprite (sentido horário na tela).
+     *
+     * Sistema de coordenadas da tela:
+     * - Câmera olha ao longo de +X (dx = z_mundo - cam_z, screen_x = dx * focal/dist + w/2).
+     *   Portanto, +Z no mundo projeta para a DIREITA na tela (screen_x aumenta com Z).
+     *   -Z no mundo projeta para a ESQUERDA na tela.
+     * - Eixo Y aponta para cima no mundo (screen_y diminui quando Y aumenta).
+     * - No contexto 2D (canvas ctx.rotate):
+     *   Ângulo positivo gira em sentido HORÁRIO (topo do corpo inclina para a DIREITA / +Z).
+     *   Ângulo negativo gira em sentido ANTI-HORÁRIO (topo do corpo inclina para a ESQUERDA / -Z).
+     *
+     * Na transição da direita (+Z / screen_x > centro):
+     * - A rampa sobe para a direita: conforme Z aumenta, Y aumenta.
+     * - A normal da rampa aponta para a esquerda/cima (-Z, +Y).
+     * - O skatista em cima da rampa (de pé na superfície) tem os pés apoiados na rampa
+     *   e o corpo perpendicular à superfície, ou o shape tangente à rampa (subindo para a direita).
+     * - Com o shape horizontal inicialmente: o lado direito (+X local do sprite) deve SUBIR e
+     *   o topo do corpo (cabeça em -Y local) deve inclinar para a ESQUERDA em relação ao shape,
+     *   OU seja, rotação ANTI-HORÁRIA (negativa) na tela:
+     *   Ao girar anti-horário (-theta): o ponto (+30, 0) vai para y < 0 (sobe na tela),
+     *   o ponto (-30, 0) vai para y > 0 (desce na tela), exatamente acompanhando a rampa!
+     *   E a cabeça (0, -100) gira para x < 0 (esquerda na tela), perpendicular à superfície que sobe.
+     *
+     * Na transição da esquerda (-Z / screen_x < centro):
+     * - A rampa sobe para a esquerda: conforme Z diminui, Y aumenta.
+     * - Rotação HORÁRIA (+theta): o lado esquerdo (-30, 0) vai para y < 0 (sobe na tela),
+     *   acompanhando a subida para a esquerda.
+     *
+     * Portanto, slope = -Math.sign(p) * theta.
      */
     const rampSurface = (
       p: number,
@@ -465,9 +490,10 @@ export function GameCanvas({
       const theta = (d / ARC_LEN) * (Math.PI / 2) // 0..PI/2
       const y = RAMP.radius * (1 - Math.cos(theta))
       const z = Math.sign(p) * (HALF_FLAT + RAMP.radius * Math.sin(theta))
-      // Tangente da superfície: dy/dz
-      // Como p > 0 está em +Z, a inclinação tangencial é Math.sign(p) * theta
-      const slope = Math.sign(p) * theta
+      // Inclinação angular para o sprite 2D:
+      // Em +Z (direita da tela), precisa girar no sentido anti-horário (-theta).
+      // Em -Z (esquerda da tela), precisa girar no sentido horário (+theta).
+      const slope = -Math.sign(p) * theta
       return { y, z, slope, isTransition: true }
     }
 
@@ -747,7 +773,7 @@ export function GameCanvas({
       } else if (grinding) {
         pose = 'grind'
         targetCrouch = 0.55
-        targetAngle = (p > 0 ? 1 : -1) * 0.2
+        targetAngle = (p > 0 ? -1 : 1) * 0.2
       } else {
         // Skatista na rampa:
         // PUMPING real:
