@@ -127,10 +127,11 @@ export interface SkaterMotionState {
   balanceArm: number // oscilação dinâmica dos braços para equilíbrio (-1 .. 1)
   isAir: boolean
   isLanding: boolean
+  facing: 1 | -1 // +1 = olhando/andando para a direita na tela (+Z), -1 = para a esquerda (-Z)
 }
 
 function drawSkater(ctx: CanvasRenderingContext2D, motion: SkaterMotionState) {
-  const { pose, flipRotation, grabT, crouch, surfaceAngle, balanceArm } = motion
+  const { pose, flipRotation, grabT, crouch, surfaceAngle, balanceArm, facing } = motion
 
   const w = ctx.canvas.width
   const h = ctx.canvas.height
@@ -140,8 +141,16 @@ function drawSkater(ctx: CanvasRenderingContext2D, motion: SkaterMotionState) {
   // Ponto de base do contato do skate com o chão
   ctx.translate(w / 2, h * 0.86)
 
+  // Espelhamento horizontal conforme a direção que o skatista está olhando (facing)
+  if (facing < 0) {
+    ctx.scale(-1, 1)
+  }
+
   // Rotação: no ar manobras como flip giram 360+; na rampa o skatista inclina acompanhando a superfície
-  const totalRotation = flipRotation + surfaceAngle
+  // Note: quando ctx.scale(-1, 1) está ativo, rotações positivas giram anti-horário no espaço da tela.
+  // Multiplicamos pelo facing para que a inclinação do mundo na tela (surfaceAngle)
+  // permaneça sempre idêntica independentemente de estar olhando para a direita ou para a esquerda.
+  const totalRotation = flipRotation + surfaceAngle * facing
   ctx.rotate(totalRotation)
 
   const shirt = '#c0312b'
@@ -543,6 +552,7 @@ export function GameCanvas({
     let p = 0
     let vp = 4.2 // velocidade longitudinal (unidades/frame)
     let pDir: 1 | -1 = 1
+    let skaterFacing: 1 | -1 = 1
 
     // Estado de vôo (ao sair da rampa pelo coping).
     type AirState = {
@@ -610,6 +620,9 @@ export function GameCanvas({
       air.flipCount = 0
       air.didGrab = false
       air.didLip = false
+      // No ar ao sair pelo coping de um lado (ex: subindo para a direita side=+1),
+      // mantém a orientação até aterrissar ou reorienta na aterrissagem.
+      skaterFacing = side > 0 ? 1 : -1
     }
 
     const landAir = () => {
@@ -622,6 +635,8 @@ export function GameCanvas({
       grinding = false
       grindT = 0
       landingTimer = LANDING_DURATION // inicia animação de agachamento de aterrissagem
+      // Ao aterrissar e descer a rampa, o skatista se move no sentido de pDir
+      skaterFacing = pDir
     }
 
     // --- Loop de jogo limitado a 30 FPS (metade da velocidade original) ---
@@ -715,6 +730,7 @@ export function GameCanvas({
         // Pumping: avança longitudinalmente.
         if (!grinding) {
           p += pDir * vp
+          skaterFacing = pDir
           // Ao atingir o coping, sai da rampa (vôo).
           if (p >= HALF_LEN) {
             p = HALF_LEN
@@ -829,6 +845,7 @@ export function GameCanvas({
         balanceArm: balanceArmVal,
         isAir: air.active,
         isLanding: landingTimer > 0,
+        facing: skaterFacing,
       })
 
       // --- Render ---
