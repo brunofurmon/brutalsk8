@@ -558,7 +558,9 @@ export function GameCanvas({
     let playerX = 0
     // Coordenada longitudinal p; o skatista oscila entre -HALF_LEN e +HALF_LEN.
     let p = 0
-    let vp = 4.2 // velocidade longitudinal (unidades/frame)
+    // Velocidade de oscilação automática na rampa aumentada em 25% (4.2 * 1.25 = 5.25)
+    const AUTO_PUMP_SPEED = 5.25
+    let vp = AUTO_PUMP_SPEED // velocidade longitudinal (unidades/frame)
     let pDir: 1 | -1 = 1
     let skaterFacing: 1 | -1 = 1
 
@@ -639,7 +641,7 @@ export function GameCanvas({
       air.active = false
       p = air.side > 0 ? HALF_LEN : -HALF_LEN
       pDir = (air.side > 0 ? -1 : 1) as 1 | -1
-      vp = 4.2
+      vp = AUTO_PUMP_SPEED
       grinding = false
       grindT = 0
       landingTimer = LANDING_DURATION // inicia animação de agachamento de aterrissagem
