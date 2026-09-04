@@ -10,9 +10,9 @@ export function TouchControls() {
   const [thumb, setThumb] = useState<{ x: number; y: number } | null>(null)
 
   const resetInput = useCallback(() => {
-    inputState.a = false
-    inputState.d = false
-    inputState.analogX = 0
+    inputState.up = false
+    inputState.down = false
+    inputState.analogY = 0
   }, [])
 
   const updateInput = useCallback(
@@ -36,12 +36,14 @@ export function TouchControls() {
       const radius = rect.width / 2
       const clampedDist = Math.min(dist, radius)
       const scale = clampedDist / dist
-      const analogX = (dx * scale) / radius
 
-      // Movimento lateral apenas (usamos analogX).
-      inputState.analogX = analogX
-      inputState.a = analogX < -0.2
-      inputState.d = analogX > 0.2
+      // Mapeia eixo vertical (cima = dy negativo no DOM, corresponde a analogY positivo / direção crescente)
+      // Baixo = dy positivo no DOM, corresponde a analogY negativo / direção decrescente
+      const analogY = -(dy * scale) / radius
+
+      inputState.analogY = analogY
+      inputState.up = analogY > 0.2
+      inputState.down = analogY < -0.2
 
       // Limita o thumb ao raio do botão para feedback visual.
       if (dist > radius) {
@@ -104,7 +106,7 @@ export function TouchControls() {
       className="absolute inset-0 z-20 pointer-events-none flex items-end justify-between p-4 md:hidden"
       style={{ paddingBottom: 'calc(env(safe-area-inset-bottom) + 1.5rem)' }}
     >
-      {/* Joystick analógico (lateral) */}
+      {/* Joystick analógico (vertical / deslocamento na rampa) */}
       <div
         ref={baseRef}
         onPointerDown={handlePointerDown}

@@ -1,10 +1,12 @@
 export type TrickKey = 'space' | 'g' | 'k' | 'l'
 
 export const inputState = {
-  // Movimento lateral (teclado + joystick analógico)
-  a: false,
-  d: false,
-  analogX: 0, // -1 (esquerda) a 1 (direita)
+  // Deslocamento na rampa (teclado + joystick analógico)
+  // up / w = movimento crescente (direção que antes era D / Direita)
+  // down / s = movimento decrescente (direção que antes era A / Esquerda)
+  up: false,
+  down: false,
+  analogY: 0, // -1 (baixo) a 1 (cima)
 
   // Estados "pressionado agora" (held) para as teclas de manobra.
   space: false,
@@ -41,16 +43,16 @@ export const consumeTrick = (key: TrickKey): boolean => {
   return false
 }
 
-const keyMap: Record<string, TrickKey | 'a' | 'd'> = {
+const keyMap: Record<string, TrickKey | 'up' | 'down'> = {
   ' ': 'space',
   spacebar: 'space',
   g: 'g',
   k: 'k',
   l: 'l',
-  a: 'a',
-  arrowleft: 'a',
-  d: 'd',
-  arrowright: 'd',
+  w: 'up',
+  arrowup: 'up',
+  s: 'down',
+  arrowdown: 'down',
 }
 
 export const initKeyboardControls = () => {
@@ -59,10 +61,10 @@ export const initKeyboardControls = () => {
     const mapped = keyMap[key]
     if (!mapped) return
 
-    if (mapped === 'a') {
-      inputState.a = state
-    } else if (mapped === 'd') {
-      inputState.d = state
+    if (mapped === 'up') {
+      inputState.up = state
+    } else if (mapped === 'down') {
+      inputState.down = state
     } else {
       const trick = mapped as TrickKey
       const wasHeld = inputState[trick]
@@ -75,7 +77,7 @@ export const initKeyboardControls = () => {
 
   const downListener = (e: KeyboardEvent) => {
     // Evita scroll da página com espaço/setas.
-    if ([' ', 'spacebar', 'arrowleft', 'arrowright'].includes(e.key.toLowerCase())) {
+    if ([' ', 'spacebar', 'arrowup', 'arrowdown', 'w', 's'].includes(e.key.toLowerCase())) {
       e.preventDefault()
     }
     handleKey(e, true)

@@ -95,9 +95,9 @@ export default function Index() {
       <div className="hidden md:flex absolute bottom-0 right-0 z-10 pointer-events-auto flex-col items-end text-right p-6 gap-3">
         <div className="bg-black/40 backdrop-blur-sm border border-white/10 p-4 rounded text-white/90 text-sm">
           <p className="mb-2">
-            <span className="font-black text-white bg-white/20 px-2 py-1 rounded mr-2">A / D</span>
-            <span className="font-black text-white bg-white/20 px-2 py-1 rounded mr-2">← / →</span>
-            <span className="ml-2">MOVER LATERAL</span>
+            <span className="font-black text-white bg-white/20 px-2 py-1 rounded mr-2">W / S</span>
+            <span className="font-black text-white bg-white/20 px-2 py-1 rounded mr-2">↑ / ↓</span>
+            <span className="ml-2">MOVER NA RAMPA</span>
           </p>
           <p>
             <span className="font-black text-white bg-white/20 px-2 py-1 rounded mr-2">ESPAÇO</span>
@@ -113,7 +113,7 @@ export default function Index() {
           </p>
           <p>
             <span className="font-black text-white bg-white/20 px-2 py-1 rounded mr-2">L</span>
-            <span className="ml-2">LIP TRICK (no ar/copING)</span>
+            <span className="ml-2">LIP TRICK (no ar/coping)</span>
           </p>
         </div>
 

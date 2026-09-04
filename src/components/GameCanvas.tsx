@@ -654,15 +654,16 @@ export function GameCanvas({
       // mantém o restante para não acumular drift
       lastFrame = now - (elapsed % FRAME_MS)
 
-      // --- Input lateral (A/D ou joystick analógico) ---
-      const analogMag = Math.abs(inputState.analogX)
+      // --- Deslocamento na rampa (W/S, ArrowUp/ArrowDown ou joystick analógico vertical) ---
+      // CIMA / W = direção crescente (+), BAIXO / S = direção decrescente (-)
+      const analogMag = Math.abs(inputState.analogY)
       const usingAnalog = analogMag > 0.08
       let lateral = 0
       if (usingAnalog) {
-        lateral = inputState.analogX
+        lateral = inputState.analogY
       } else {
-        if (inputState.a) lateral -= 1
-        if (inputState.d) lateral += 1
+        if (inputState.down) lateral -= 1
+        if (inputState.up) lateral += 1
       }
       const LATERAL_SPEED = 6
       const halfW = RAMP.width / 2 - 30
