@@ -142,14 +142,16 @@ function drawSkater(ctx: CanvasRenderingContext2D, motion: SkaterMotionState) {
   // As rodas são desenhadas centralizadas em y = 2 com raio 4, alcançando y = +6 no espaço local.
   // Fixamos o ponto de apoio (pivô de contato com o chão) exatamente em (w / 2, h):
   // no flat, a base inferior das rodas fica exatamente em y = h.
-  ctx.translate(w / 2, h)
+  // Adicionamos uma pequena margem de segurança de 4px para cima no canvas do sprite
+  // para garantir que nem um único pixel da roda ou do shape fique abaixo do ponto de apoio.
+  ctx.translate(w / 2, h - 4)
 
   // Espelhamento horizontal conforme a direção que o skatista está olhando (facing)
   if (facing < 0) {
     ctx.scale(-1, 1)
   }
 
-  // Rotação em torno do ponto de contato das rodas com a superfície (h).
+  // Rotação em torno do ponto de contato das rodas com a superfície (h - 4).
   // No espaço local pós-translação (0, 0), as rodas tocam em y = 0 se subirmos o skate 6px.
   // Note: quando ctx.scale(-1, 1) está ativo, rotações positivas giram anti-horário no espaço da tela.
   // Multiplicamos pelo facing para que a inclinação do mundo na tela (surfaceAngle)
@@ -160,7 +162,6 @@ function drawSkater(ctx: CanvasRenderingContext2D, motion: SkaterMotionState) {
   // Desloca o skatista para cima pelo raio inferior das rodas (6px),
   // garantindo que a base das rodas fique exatamente sobre o pivô de contato (0, 0)
   ctx.translate(0, -6)
-
   const shirt = '#c0312b'
   const shirtDark = '#7f1d1d'
   const pantsDark = '#1e293b'
@@ -412,6 +413,7 @@ export function GameCanvas({
       height: 120,
       radius: 120,
       segments: 16,
+      omitFrontSideWall: true,
     }
     const FLAT_DEPTH = RAMP.depth - 2 * RAMP.transitionDepth // 160
     const HALF_FLAT = FLAT_DEPTH / 2 // 80
@@ -887,12 +889,6 @@ export function GameCanvas({
         target.fill()
       }
 
-      // Triângulos do mundo (chão + rampa).
-      const tris: Triangle[] = []
-      for (const t of groundTris) tris.push(t)
-      for (const t of rampTris) tris.push(t)
-      renderTriangles(target, tris, width, height, FOCAL, transform, lightDir)
-
       // --- Posição atual do skatista ---
       let py: number, pz: number
       if (air.active) {
@@ -904,18 +900,43 @@ export function GameCanvas({
         pz = surf.z
       }
 
-      // Sombra projetada no chão (arcade).
+      // Normal à superfície da rampa para posicionamento sem clipping:
+      let normY = 1
+      let normZ = 0
+      if (!air.active && Math.abs(p) > HALF_FLAT) {
+        const ap = Math.abs(p)
+        const d = ap - HALF_FLAT
+        const theta = (d / ARC_LEN) * (Math.PI / 2)
+        normZ = -Math.sign(p) * Math.sin(theta)
+        normY = Math.cos(theta)
+      }
+
+      // Deslocamento para garantir contato perfeito das rodas e nenhuma interseção de malha
+      const renderContactPoint: Vec3 = [playerX, py + normY * 2.5, pz + normZ * 2.5]
+
+      // Triângulos do mundo (chão + rampa).
+      const tris: Triangle[] = []
+      for (const t of groundTris) tris.push(t)
+      for (const t of rampTris) tris.push(t)
+
+      // Renderiza a geometria da rampa e chão
+      renderTriangles(target, tris, width, height, FOCAL, transform, lightDir)
+
+      // Sombra projetada (arcade): desenhada logo após a geometria da rampa e antes do skatista.
+      // Em vôo alto na rampa, a sombra projeta no flat/transição abaixo.
       {
-        const shadowCenter: Vec3 = [playerX, 1, pz]
+        const shadowY = Math.min(py, Math.max(0, rampSurface(p).y)) + 1
+        const shadowCenter: Vec3 = [playerX, shadowY, pz]
         const tsh = transform(shadowCenter)
         if (tsh[2] > 10) {
           const ssx = tsh[0] * (FOCAL / tsh[2]) + width / 2
           const ssy = -tsh[1] * (FOCAL / tsh[2]) + height / 2
-          const shrink = Math.max(0.4, 1 - Math.min(1, py / (COPING_Y * 1.6)))
-          const rw = ((60 * FOCAL) / tsh[2]) * shrink
-          const rh = ((18 * FOCAL) / tsh[2]) * shrink
+          const heightAboveRamp = Math.max(0, py - shadowY)
+          const shrink = Math.max(0.35, 1 - Math.min(1, heightAboveRamp / (COPING_Y * 1.5)))
+          const rw = ((55 * FOCAL) / tsh[2]) * shrink
+          const rh = ((16 * FOCAL) / tsh[2]) * shrink
           target.save()
-          target.globalAlpha = 0.3 * shrink
+          target.globalAlpha = 0.28 * shrink
           target.fillStyle = '#000'
           target.beginPath()
           target.ellipse(ssx, ssy, rw, rh, 0, 0, Math.PI * 2)
@@ -924,14 +945,11 @@ export function GameCanvas({
         }
       }
 
-      // --- Billboard do sprite ---
-      // A posição 3D [playerX, py, pz] é o ponto exato na superfície da pista/rampa
-      // onde as rodas do skate devem tocar.
-      // Projetamos [playerX, py, pz] diretamente: na tela 2D, isso dá o ponto base (sx, sy).
-      // Como a base das rodas no sprite desenhado coincide com o fundo do canvas do sprite (y = SPRITE_H),
-      // desenhamos o sprite de modo que o seu fundo (sy) fique exatamente em [playerX, py, pz].
-      const contactPoint: Vec3 = [playerX, py, pz]
-      const tc = transform(contactPoint)
+      // --- Billboard do sprite do skatista ---
+      // Renderizado garantidamente por cima de qualquer triângulo da rampa e da sombra.
+      // O ponto de contato renderContactPoint projeta a base das rodas exatamente na superfície
+      // visível da rampa de madeira, sem que o skatista fique afundado ou sobreposto.
+      const tc = transform(renderContactPoint)
       if (tc[2] > 10) {
         const sx = tc[0] * (FOCAL / tc[2]) + width / 2
         const sy = -tc[1] * (FOCAL / tc[2]) + height / 2
@@ -943,8 +961,6 @@ export function GameCanvas({
         target.drawImage(sprite, sx - drawW / 2, sy - drawH, drawW, drawH)
         target.restore()
       }
-
-      // Supersampling: desenha offscreen 2x no display 1x.
       if (useAA) {
         target.setTransform(1, 0, 0, 1, 0, 0)
         ctx.setTransform(1, 0, 0, 1, 0, 0)

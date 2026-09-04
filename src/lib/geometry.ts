@@ -125,6 +125,8 @@ export interface MiniRampParams {
   radius: number
   /** Segmentos de cada transição. */
   segments: number
+  /** Omitir parede lateral próxima à câmera para visão lateral desobstruída */
+  omitFrontSideWall?: boolean
 }
 
 /**
@@ -290,25 +292,27 @@ export const createMiniRamp = (p: MiniRampParams): Triangle[] => {
       const colSide1 = getWoodSideColor(-halfW, cA.y, cA.z, (side > 0 ? 500 : 600) + i)
       const colSide2 = getWoodSideColor(halfW, cA.y, cA.z, (side > 0 ? 700 : 800) + i)
 
-      // Lateral -X
-      tris.push({
-        vertices: [
-          [-halfW, 0, cA.z],
-          [-halfW, cA.y, cA.z],
-          [-halfW, cB.y, cB.z],
-        ],
-        color: colSide1,
-      })
-      tris.push({
-        vertices: [
-          [-halfW, 0, cA.z],
-          [-halfW, cB.y, cB.z],
-          [-halfW, 0, cB.z],
-        ],
-        color: colSide1,
-      })
+      // Lateral -X (parede frontal voltada para a câmera)
+      if (!p.omitFrontSideWall) {
+        tris.push({
+          vertices: [
+            [-halfW, 0, cA.z],
+            [-halfW, cA.y, cA.z],
+            [-halfW, cB.y, cB.z],
+          ],
+          color: colSide1,
+        })
+        tris.push({
+          vertices: [
+            [-halfW, 0, cA.z],
+            [-halfW, cB.y, cB.z],
+            [-halfW, 0, cB.z],
+          ],
+          color: colSide1,
+        })
+      }
 
-      // Lateral +X
+      // Lateral +X (parede traseira oposta à câmera)
       tris.push({
         vertices: [
           [halfW, 0, cA.z],
