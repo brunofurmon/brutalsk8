@@ -86,7 +86,15 @@ export function TouchControls() {
   )
 
   // Botões de manobra: cada toque dispara a borda (tapTrick -> pressTrick).
-  const trickBtn = (key: 'space' | 'g' | 'k' | 'l', label: string, color: string) => (
+  // Para mobile:
+  // - Botão LIP: lip trick parado no coping (envia 'l' que faz stall)
+  // - Botão GRIND: se o joystick estiver inclinado, grind na direção; senão, se neutro, lip trick (stall)
+  const trickBtn = (
+    key: 'space' | 'g' | 'k' | 'l',
+    label: string,
+    color: string,
+    customAction?: () => void,
+  ) => (
     <button
       className={cn(
         'active:scale-95 backdrop-blur-sm w-16 h-16 rounded-full flex items-center justify-center border-2 border-white/20 text-white font-black tracking-wide text-xs shadow-xl touch-none transition-transform',
@@ -94,12 +102,31 @@ export function TouchControls() {
       )}
       onPointerDown={(e) => {
         e.preventDefault()
-        tapTrick(key)
+        if (customAction) {
+          customAction()
+        } else {
+          tapTrick(key)
+        }
       }}
     >
       {label}
     </button>
   )
+
+  const handleLipButton = () => {
+    // Lip = sempre stall parado no coping
+    tapTrick('l')
+  }
+
+  const handleGrindButton = () => {
+    // Grind = se joystick inclinado faz grind na direção; se neutro faz lip trick
+    const hasTilt = Math.abs(inputState.analogY) > 0.15 || inputState.up || inputState.down
+    if (hasTilt) {
+      tapTrick('k')
+    } else {
+      tapTrick('l')
+    }
+  }
 
   return (
     <div
@@ -128,8 +155,8 @@ export function TouchControls() {
       {/* Botões de manobra */}
       <div className="pointer-events-auto flex flex-col items-end gap-2">
         <div className="flex gap-2">
-          {trickBtn('l', 'LIP', 'bg-purple-600/80 active:bg-purple-500')}
-          {trickBtn('k', 'GRIND', 'bg-amber-600/80 active:bg-amber-500')}
+          {trickBtn('l', 'LIP', 'bg-purple-600/80 active:bg-purple-500', handleLipButton)}
+          {trickBtn('k', 'GRIND', 'bg-amber-600/80 active:bg-amber-500', handleGrindButton)}
         </div>
         <div className="flex gap-2">
           {trickBtn('g', 'GRAB', 'bg-sky-600/80 active:bg-sky-500')}

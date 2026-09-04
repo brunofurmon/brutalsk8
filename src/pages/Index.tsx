@@ -107,13 +107,23 @@ export default function Index() {
             <span className="font-black text-white bg-white/20 px-2 py-1 rounded mr-2">G</span>
             <span className="ml-2">GRAB (no ar)</span>
           </p>
-          <p>
-            <span className="font-black text-white bg-white/20 px-2 py-1 rounded mr-2">K</span>
-            <span className="ml-2">GRIND (no coping)</span>
+          <p className="mt-2">
+            <span className="font-black text-white bg-white/20 px-2 py-1 rounded mr-2">
+              K (sem direção)
+            </span>
+            <span className="ml-2">LIP TRICK (stall parado no coping)</span>
           </p>
-          <p>
-            <span className="font-black text-white bg-white/20 px-2 py-1 rounded mr-2">L</span>
-            <span className="ml-2">LIP TRICK (no ar/coping)</span>
+          <p className="mt-2">
+            <span className="font-black text-white bg-white/20 px-2 py-1 rounded mr-2">
+              K + DIREÇÃO
+            </span>
+            <span className="ml-2">GRIND (desliza no coping)</span>
+          </p>
+          <p className="mt-2 text-white/60 text-xs">
+            <span className="font-black text-white/80 bg-white/10 px-1.5 py-0.5 rounded mr-1.5">
+              L
+            </span>
+            <span>atalho para Lip Trick | Soltar direção / K devolve à rampa sem pulo</span>
           </p>
         </div>
 

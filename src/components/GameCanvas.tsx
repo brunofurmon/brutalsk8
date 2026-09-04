@@ -607,9 +607,15 @@ export function GameCanvas({
       didLip: false,
     }
 
-    // Grind/lip no coping.
-    let grinding = false
-    let grindT = 0
+    // Coping state: 'stall' (Lip Trick parado no coping) ou 'grind' (deslizando pelo coping)
+    type CopingMode = 'none' | 'stall' | 'grind'
+    let copingMode: CopingMode = 'none'
+    let copingTimer = 0
+    let copingSide: 1 | -1 = 1
+    let grindDir: 1 | -1 = 1 // direção do grind ao longo do coping (+1 = +X / direita na tela, -1 = -X / esquerda na tela)
+    let grindSpeed = 6.0
+    // Buffer temporário para bloquear pulo (ESPAÇO) logo após sair de lip/grind
+    let copingExitCooldown = 0
 
     // Animação de aterrissagem (agachamento elástico ao tocar na rampa)
     let landingTimer = 0
@@ -648,11 +654,27 @@ export function GameCanvas({
       p = air.side > 0 ? HALF_LEN : -HALF_LEN
       pDir = (air.side > 0 ? -1 : 1) as 1 | -1
       vp = AUTO_PUMP_SPEED
-      grinding = false
-      grindT = 0
+      copingMode = 'none'
+      copingTimer = 0
       landingTimer = LANDING_DURATION // inicia animação de agachamento de aterrissagem
       // Ao aterrissar e descer a rampa, o skatista se move no sentido de pDir
       skaterFacing = pDir
+    }
+
+    /**
+     * Finaliza manobra de coping (stall ou grind) devolvendo o skatista
+     * para a transição/queda da rampa sem saltar no ar.
+     */
+    const exitCopingToRamp = () => {
+      copingMode = 'none'
+      copingTimer = 0
+      // Coloca o skatista logo abaixo do coping, descendo em direção ao flat
+      p = copingSide > 0 ? HALF_LEN - 3 : -HALF_LEN + 3
+      pDir = (copingSide > 0 ? -1 : 1) as 1 | -1
+      vp = AUTO_PUMP_SPEED
+      skaterFacing = pDir
+      landingTimer = Math.floor(LANDING_DURATION * 0.75) // amortecimento elástico
+      copingExitCooldown = 15 // bloqueia pulo (espaço) nos próximos frames
     }
 
     // --- Loop de jogo limitado a 30 FPS (metade da velocidade original) ---
@@ -670,8 +692,12 @@ export function GameCanvas({
       // mantém o restante para não acumular drift
       lastFrame = now - (elapsed % FRAME_MS)
 
-      // --- Deslocamento na rampa (W/S, ArrowUp/ArrowDown ou joystick analógico vertical) ---
-      // CIMA / W = direção crescente (+), BAIXO / S = direção decrescente (-)
+      // Decrementa cooldown de bloqueio de pulo após sair de manobras de coping
+      if (copingExitCooldown > 0) copingExitCooldown--
+
+      // --- Leitura de intenção de direção (W/S, ArrowUp/ArrowDown ou joystick vertical) ---
+      // CIMA / W / joystick cima = +X (direita na tela vista lateral)
+      // BAIXO / S / joystick baixo = -X (esquerda na tela vista lateral)
       const analogMag = Math.abs(inputState.analogY)
       const usingAnalog = analogMag > 0.08
       let lateral = 0
@@ -681,12 +707,18 @@ export function GameCanvas({
         if (inputState.down) lateral -= 1
         if (inputState.up) lateral += 1
       }
-      // Velocidade de deslocamento na rampa aumentada em 25% (6 * 1.25 = 7.5)
-      const LATERAL_SPEED = 7.5
+      const hasDirectionInput = Math.abs(lateral) > 0.15
+      const dirSign: 1 | -1 = lateral >= 0 ? 1 : -1
+
+      // Deslocamento na rampa (apenas se NÃO estiver em stall parado no coping nem grinding com controle próprio)
       const halfW = RAMP.width / 2 - 30
-      playerX += lateral * LATERAL_SPEED
-      if (playerX < -halfW) playerX = -halfW
-      if (playerX > halfW) playerX = halfW
+      if (copingMode === 'none') {
+        // Velocidade de deslocamento na rampa aumentada em 25% (6 * 1.25 = 7.5)
+        const LATERAL_SPEED = 7.5
+        playerX += lateral * LATERAL_SPEED
+        if (playerX < -halfW) playerX = -halfW
+        if (playerX > halfW) playerX = halfW
+      }
 
       // --- Atualização física ---
       if (air.active) {
@@ -706,16 +738,18 @@ export function GameCanvas({
 
         // Manobras aéreas (edge-triggered).
         if (consumeTrick('space')) {
-          air.flipCount += 1
-          air.flipTarget += Math.PI * 2
-          if (air.flipCount === 1) {
-            air.pose = 'flip'
-            air.poseT = 0
-            completeTrick('flip')
-          } else if (air.flipCount === 2) {
-            completeTrick('360flip')
-          } else {
-            completeTrick('fsflip')
+          if (copingExitCooldown === 0) {
+            air.flipCount += 1
+            air.flipTarget += Math.PI * 2
+            if (air.flipCount === 1) {
+              air.pose = 'flip'
+              air.poseT = 0
+              completeTrick('flip')
+            } else if (air.flipCount === 2) {
+              completeTrick('360flip')
+            } else {
+              completeTrick('fsflip')
+            }
           }
         }
         if (consumeTrick('g') && !air.didGrab) {
@@ -724,19 +758,31 @@ export function GameCanvas({
           air.grabT = 0
           completeTrick('grab')
         }
-        if (consumeTrick('l') && !air.didLip) {
-          // Lip trick só vale se estiver alto (próximo ao ápice/copING).
-          if (air.y > COPING_Y - 10) {
-            air.didLip = true
-            air.pose = 'lip'
-            air.poseT = 0
+
+        // Se o usuário apertar K ou L no ar perto do coping, pode prender em stall ou grind no coping!
+        const nearCopingAir = air.y >= COPING_Y - 14 && air.y <= COPING_Y + 18
+        const pressedTrickK = consumeTrick('k')
+        const pressedTrickL = consumeTrick('l')
+        if ((pressedTrickK || pressedTrickL) && nearCopingAir) {
+          air.active = false
+          copingSide = air.side
+          p = copingSide > 0 ? HALF_LEN : -HALF_LEN
+          if (pressedTrickK && hasDirectionInput) {
+            copingMode = 'grind'
+            copingTimer = 0
+            grindDir = dirSign
+            completeTrick('grind')
+          } else {
+            // Sem direção pressionada (ou pressionou L): Lip Trick parado no coping
+            copingMode = 'stall'
+            copingTimer = 0
             completeTrick('lip')
           }
         }
 
         // Pose temporária volta ao idle após algum tempo.
         air.poseT += 1
-        if ((air.pose === 'flip' || air.pose === 'lip') && air.poseT > 26 && air.y < COPING_Y + 8) {
+        if (air.pose === 'flip' && air.poseT > 26 && air.y < COPING_Y + 8) {
           air.pose = 'idle'
         }
 
@@ -744,35 +790,108 @@ export function GameCanvas({
         if (air.vy < 0 && air.y <= COPING_Y) {
           landAir()
         }
+      } else if (copingMode === 'stall') {
+        // --- LIP TRICK (STALL NO COPING) ---
+        // Skatista fica PARADO no topo do coping em equilíbrio.
+        // Espaço não pula durante o stall.
+        consumeTrick('space')
+        consumeTrick('g')
+        copingTimer += 1
+
+        // Se o skatista pressionar K novamente, ou L, ou direção após um curto tempo de stall,
+        // ou se o tempo máximo do stall expirar (90 frames = 3 segs):
+        const pressKAgain = consumeTrick('k')
+        const pressLAgain = consumeTrick('l')
+
+        if (pressKAgain || pressLAgain) {
+          if (hasDirectionInput) {
+            // Transiciona de stall para grind!
+            copingMode = 'grind'
+            copingTimer = 0
+            grindDir = dirSign
+            completeTrick('grind')
+          } else {
+            // Sai do coping de volta à rampa
+            exitCopingToRamp()
+          }
+        } else if (copingTimer > 15 && hasDirectionInput) {
+          // Se inclinar direção durante o stall, inicia grind na direção inclinada
+          copingMode = 'grind'
+          copingTimer = 0
+          grindDir = dirSign
+          completeTrick('grind')
+        } else if (copingTimer >= 90) {
+          // Tempo limite de stall atingido, desce automaticamente para a rampa
+          exitCopingToRamp()
+        }
+      } else if (copingMode === 'grind') {
+        // --- GRIND (DESLIZANDO PELO COPING) ---
+        // Skatista desliza ao longo do coping em playerX
+        consumeTrick('space')
+        consumeTrick('g')
+        consumeTrick('l')
+        copingTimer += 1
+
+        // Desliza ao longo do coping
+        playerX += grindDir * grindSpeed
+
+        // Se soltar a direção após o grind engatado, ou se pressionar direção contrária,
+        // ou se bater na extremidade do coping (halfW), encerra o grind
+        const reachedEdge = Math.abs(playerX) >= halfW - 5
+        const releasedDirection = copingTimer > 10 && !hasDirectionInput
+        const oppositeDirection = copingTimer > 5 && hasDirectionInput && dirSign !== grindDir
+        const pressKToExit = copingTimer > 10 && consumeTrick('k')
+
+        if (
+          reachedEdge ||
+          releasedDirection ||
+          oppositeDirection ||
+          pressKToExit ||
+          copingTimer > 120
+        ) {
+          if (reachedEdge) {
+            playerX = Math.sign(playerX) * (halfW - 5)
+          }
+          exitCopingToRamp()
+        }
       } else {
+        // --- NA RAMPA (PUMPING) ---
         // Pumping: avança longitudinalmente.
-        if (!grinding) {
-          p += pDir * vp
-          skaterFacing = pDir
-          // Ao atingir o coping, sai da rampa (vôo).
+        p += pDir * vp
+        skaterFacing = pDir
+
+        // Região próxima ao coping na subida
+        const surf = rampSurface(p)
+        const nearCoping = surf.y > COPING_Y - 24 && Math.abs(p) > HALF_LEN - 32
+        const isAscending = (pDir > 0 && p > 0) || (pDir < 0 && p < 0)
+
+        // Se pressionar K ou L na aproximação do coping:
+        const pressedK = consumeTrick('k')
+        const pressedL = consumeTrick('l')
+
+        if ((pressedK || pressedL) && nearCoping && isAscending) {
+          copingSide = p > 0 ? 1 : -1
+          p = copingSide > 0 ? HALF_LEN : -HALF_LEN
+          if (pressedK && hasDirectionInput) {
+            // GRIND: desliza no coping na direção pressionada
+            copingMode = 'grind'
+            copingTimer = 0
+            grindDir = dirSign
+            completeTrick('grind')
+          } else {
+            // LIP TRICK: stall parado no coping
+            copingMode = 'stall'
+            copingTimer = 0
+            completeTrick('lip')
+          }
+        } else {
+          // Ao atingir o coping normalmente (sem manobra de coping engatada), sai da rampa (vôo normal).
           if (p >= HALF_LEN) {
             p = HALF_LEN
             startAir(1)
           } else if (p <= -HALF_LEN) {
             p = -HALF_LEN
             startAir(-1)
-          }
-        }
-
-        // Grind: K ao passar perto do coping.
-        const surf = rampSurface(p)
-        const nearCoping = surf.y > COPING_Y - 25 && Math.abs(p) > HALF_LEN - 30
-        if (consumeTrick('k') && nearCoping && !grinding) {
-          grinding = true
-          grindT = 0
-          completeTrick('grind')
-        }
-        if (grinding) {
-          grindT += 1
-          // Grind trava no topo por alguns frames; depois solta em vôo.
-          if (grindT > 50) {
-            grinding = false
-            startAir(p > 0 ? 1 : -1)
           }
         }
       }
@@ -804,10 +923,19 @@ export function GameCanvas({
           targetCrouch = air.vy > 0 ? 0.35 : 0.2
         }
         targetAngle = 0
-      } else if (grinding) {
+      } else if (copingMode === 'stall') {
+        pose = 'lip'
+        targetCrouch = 0.6
+        // Stall equilibrado perpendicular/levemente apoiado no coping
+        targetAngle = (copingSide > 0 ? -1 : 1) * 0.15
+        skaterFacing = copingSide > 0 ? 1 : -1
+      } else if (copingMode === 'grind') {
         pose = 'grind'
         targetCrouch = 0.55
-        targetAngle = (p > 0 ? -1 : 1) * 0.2
+        targetAngle = (copingSide > 0 ? -1 : 1) * 0.2
+        // Na tela lateral, se o skatista desliza para a direita (+X), ele olha para a direita (+1)
+        // se desliza para a esquerda (-X), olha para a esquerda (-1)
+        skaterFacing = grindDir
       } else {
         // Skatista na rampa:
         // PUMPING real:
@@ -898,6 +1026,9 @@ export function GameCanvas({
       if (air.active) {
         py = air.y
         pz = air.z
+      } else if (copingMode !== 'none') {
+        py = COPING_Y
+        pz = copingSide > 0 ? COPING_Z_POS : COPING_Z_NEG
       } else {
         const surf = rampSurface(p)
         py = surf.y
@@ -907,7 +1038,11 @@ export function GameCanvas({
       // Normal à superfície da rampa para posicionamento sem clipping:
       let normY = 1
       let normZ = 0
-      if (!air.active && Math.abs(p) > HALF_FLAT) {
+      if (copingMode !== 'none') {
+        // No coping (stall/grind), o skate apoia perfeitamente em cima do cano de ferro
+        normY = 1
+        normZ = 0
+      } else if (!air.active && Math.abs(p) > HALF_FLAT) {
         const ap = Math.abs(p)
         const d = ap - HALF_FLAT
         const theta = (d / ARC_LEN) * (Math.PI / 2)
