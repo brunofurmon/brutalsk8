@@ -139,22 +139,27 @@ function drawSkater(ctx: CanvasRenderingContext2D, motion: SkaterMotionState) {
   ctx.save()
 
   // Ponto de base do contato do skate com o chão.
-  // Como as rodas terminam em y = +6 no espaço local do skate,
-  // fixamos o ponto de apoio das rodas exatamente na base do sprite (h - 2)
-  // para que a base das rodas coincida perfeitamente com a superfície do chão/rampa.
-  ctx.translate(w / 2, h - 6)
+  // As rodas são desenhadas centralizadas em y = 2 com raio 4, alcançando y = +6 no espaço local.
+  // Fixamos o ponto de apoio (pivô de contato com o chão) exatamente em (w / 2, h):
+  // no flat, a base inferior das rodas fica exatamente em y = h.
+  ctx.translate(w / 2, h)
 
   // Espelhamento horizontal conforme a direção que o skatista está olhando (facing)
   if (facing < 0) {
     ctx.scale(-1, 1)
   }
 
-  // Rotação: no ar manobras como flip giram 360+; na rampa o skatista inclina acompanhando a superfície
+  // Rotação em torno do ponto de contato das rodas com a superfície (h).
+  // No espaço local pós-translação (0, 0), as rodas tocam em y = 0 se subirmos o skate 6px.
   // Note: quando ctx.scale(-1, 1) está ativo, rotações positivas giram anti-horário no espaço da tela.
   // Multiplicamos pelo facing para que a inclinação do mundo na tela (surfaceAngle)
   // permaneça sempre idêntica independentemente de estar olhando para a direita ou para a esquerda.
   const totalRotation = flipRotation + surfaceAngle * facing
   ctx.rotate(totalRotation)
+
+  // Desloca o skatista para cima pelo raio inferior das rodas (6px),
+  // garantindo que a base das rodas fique exatamente sobre o pivô de contato (0, 0)
+  ctx.translate(0, -6)
 
   const shirt = '#c0312b'
   const shirtDark = '#7f1d1d'
@@ -668,7 +673,8 @@ export function GameCanvas({
         if (inputState.down) lateral -= 1
         if (inputState.up) lateral += 1
       }
-      const LATERAL_SPEED = 6
+      // Velocidade de deslocamento na rampa aumentada em 25% (6 * 1.25 = 7.5)
+      const LATERAL_SPEED = 7.5
       const halfW = RAMP.width / 2 - 30
       playerX += lateral * LATERAL_SPEED
       if (playerX < -halfW) playerX = -halfW
