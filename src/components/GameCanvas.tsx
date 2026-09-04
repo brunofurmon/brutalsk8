@@ -130,6 +130,14 @@ export interface SkaterMotionState {
   facing: 1 | -1 // +1 = olhando/andando para a direita na tela (+Z), -1 = para a esquerda (-Z)
 }
 
+// Dimensões do canvas do sprite e posição do pivô de contato (skate no chão).
+// PIVOT_Y em 220 deixa 100px de margem inferior para que rotações de até 90° e manobras
+// nunca sejam cortadas pelas bordas do canvas offscreen.
+const SPRITE_W = 320
+const SPRITE_H = 320
+const PIVOT_X = SPRITE_W / 2 // 160
+const PIVOT_Y = 220
+
 function drawSkater(ctx: CanvasRenderingContext2D, motion: SkaterMotionState) {
   const { pose, flipRotation, grabT, crouch, surfaceAngle, balanceArm, facing } = motion
 
@@ -140,11 +148,9 @@ function drawSkater(ctx: CanvasRenderingContext2D, motion: SkaterMotionState) {
 
   // Ponto de base do contato do skate com o chão.
   // As rodas são desenhadas centralizadas em y = 2 com raio 4, alcançando y = +6 no espaço local.
-  // Fixamos o ponto de apoio (pivô de contato com o chão) exatamente em (w / 2, h):
-  // no flat, a base inferior das rodas fica exatamente em y = h.
-  // Adicionamos uma pequena margem de segurança de 4px para cima no canvas do sprite
-  // para garantir que nem um único pixel da roda ou do shape fique abaixo do ponto de apoio.
-  ctx.translate(w / 2, h - 4)
+  // Transladamos para o pivô centralizado verticalmente (PIVOT_X, PIVOT_Y), deixando ampla margem
+  // inferior para acomodar as pontas do shape e rodas inclinadas na rampa sem clipping.
+  ctx.translate(PIVOT_X, PIVOT_Y)
 
   // Espelhamento horizontal conforme a direção que o skatista está olhando (facing)
   if (facing < 0) {
@@ -398,8 +404,6 @@ export function GameCanvas({
     resize()
 
     // --- Sprite offscreen (skatista 2D, billboard) ---
-    const SPRITE_W = 220
-    const SPRITE_H = 260
     const sprite = document.createElement('canvas')
     sprite.width = SPRITE_W
     sprite.height = SPRITE_H
@@ -953,12 +957,15 @@ export function GameCanvas({
       if (tc[2] > 10) {
         const sx = tc[0] * (FOCAL / tc[2]) + width / 2
         const sy = -tc[1] * (FOCAL / tc[2]) + height / 2
-        const drawW = (SPRITE_W * FOCAL) / tc[2]
-        const drawH = (SPRITE_H * FOCAL) / tc[2]
+        const scale = FOCAL / tc[2]
+        const drawW = SPRITE_W * scale
+        const drawH = SPRITE_H * scale
+        const drawX = sx - PIVOT_X * scale
+        const drawY = sy - PIVOT_Y * scale
         target.save()
         target.imageSmoothingEnabled = true
         target.imageSmoothingQuality = 'high'
-        target.drawImage(sprite, sx - drawW / 2, sy - drawH, drawW, drawH)
+        target.drawImage(sprite, drawX, drawY, drawW, drawH)
         target.restore()
       }
       if (useAA) {
