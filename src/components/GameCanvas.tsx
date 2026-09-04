@@ -138,8 +138,11 @@ function drawSkater(ctx: CanvasRenderingContext2D, motion: SkaterMotionState) {
   ctx.clearRect(0, 0, w, h)
   ctx.save()
 
-  // Ponto de base do contato do skate com o chão
-  ctx.translate(w / 2, h * 0.86)
+  // Ponto de base do contato do skate com o chão.
+  // Como as rodas terminam em y = +6 no espaço local do skate,
+  // fixamos o ponto de apoio das rodas exatamente na base do sprite (h - 2)
+  // para que a base das rodas coincida perfeitamente com a superfície do chão/rampa.
+  ctx.translate(w / 2, h - 6)
 
   // Espelhamento horizontal conforme a direção que o skatista está olhando (facing)
   if (facing < 0) {
@@ -914,8 +917,13 @@ export function GameCanvas({
       }
 
       // --- Billboard do sprite ---
-      const center: Vec3 = [playerX, py + 48, pz]
-      const tc = transform(center)
+      // A posição 3D [playerX, py, pz] é o ponto exato na superfície da pista/rampa
+      // onde as rodas do skate devem tocar.
+      // Projetamos [playerX, py, pz] diretamente: na tela 2D, isso dá o ponto base (sx, sy).
+      // Como a base das rodas no sprite desenhado coincide com o fundo do canvas do sprite (y = SPRITE_H),
+      // desenhamos o sprite de modo que o seu fundo (sy) fique exatamente em [playerX, py, pz].
+      const contactPoint: Vec3 = [playerX, py, pz]
+      const tc = transform(contactPoint)
       if (tc[2] > 10) {
         const sx = tc[0] * (FOCAL / tc[2]) + width / 2
         const sy = -tc[1] * (FOCAL / tc[2]) + height / 2
